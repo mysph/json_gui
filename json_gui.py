@@ -6,7 +6,9 @@ GUI zum Bearbeiten und Anlegen von Typen in Typdaten.json
 
 import json
 import os
+import shutil
 import tkinter as tk
+from datetime import datetime
 from tkinter import ttk, messagebox
 
 JSON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Typdaten.json")
@@ -18,6 +20,16 @@ DEFAULT_LIMITS = {
 }
 LIMITS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Limits.json")
 
+# ─── Referenzwerte für die Positionsberechnung ───────────────────────────────
+# Der X-Achsen-Ursprung entspricht der ersten Zeile (Row-Richtung).
+# Der Y-Achsen-Ursprung entspricht der ersten Spalte (Column-Richtung).
+# WICHTIG: X-Achse = Zeilen-Richtung, Y-Achse = Spalten-Richtung.
+GRID_ORIGIN_X = 935.7252861842105   # Start-X (erste Zeile)
+GRID_ORIGIN_Y = 48.0                # Start-Y (erste Spalte)
+DEFAULT_GRID_WIDTH = 177.5394276316  # Standard-Breite (X-Span, gerundet)
+DEFAULT_GRID_HEIGHT = 162.0         # Standard-Höhe  (Y-Span)
+DEFAULT_CAPTURE_Z = 17.83           # Fest definierte Z-Höhe für CaptureImage
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Hilfsfunktionen
@@ -27,6 +39,13 @@ def load_json():
         return json.load(f)
 
 def save_json(data):
+    if os.path.exists(JSON_FILE):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        backup_path = os.path.join(
+            os.path.dirname(JSON_FILE),
+            f"Typdaten_backup_{timestamp}.json",
+        )
+        shutil.copy2(JSON_FILE, backup_path)
     with open(JSON_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent="\t", ensure_ascii=False)
 
@@ -310,6 +329,15 @@ class App(tk.Tk):
         self.new_grid_var = tk.StringVar()
         ttk.Entry(f, textvariable=self.new_grid_var, width=10).pack(side="left", padx=6)
 
+        f2 = ttk.Frame(self.new_wizard)
+        f2.pack(fill="x", pady=(4, 0))
+        ttk.Label(f2, text="Breite:").pack(side="left")
+        self.new_width_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH))
+        ttk.Entry(f2, textvariable=self.new_width_var, width=20).pack(side="left", padx=6)
+        ttk.Label(f2, text="Höhe:").pack(side="left", padx=(8, 0))
+        self.new_height_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT))
+        ttk.Entry(f2, textvariable=self.new_height_var, width=20).pack(side="left", padx=6)
+
         bf = ttk.Frame(self.new_wizard)
         bf.pack(fill="x", pady=10)
         ttk.Button(bf, text="⬅ Zurück", command=self._new_show_step0).pack(side="left")
@@ -322,6 +350,14 @@ class App(tk.Tk):
             assert rows > 0 and cols > 0
         except Exception:
             messagebox.showwarning("Eingabe", "Ungültiges Grid-Format. Bitte z.B. '4x4' eingeben.")
+            return
+
+        try:
+            width = float(self.new_width_var.get())
+            height = float(self.new_height_var.get())
+            assert width > 0 and height > 0
+        except Exception:
+            messagebox.showwarning("Eingabe", "Breite und Höhe müssen positive Zahlen sein.")
             return
 
         self._clear_wizard()
@@ -379,7 +415,9 @@ class App(tk.Tk):
             for c in range(cols):
                 cell = ttk.Frame(row_frame, relief="groove", borderwidth=1)
                 cell.pack(side="left", padx=2, pady=1)
-                self.new_capture_entries[(r, c)] = self._xyz_entries_compact(cell, {"X": 0, "Y": 0, "Z": 0})
+                px, py, pz = self._get_initial_position(rows, cols, r, c, width, height)
+                init_pos = {"X": round(px, 4), "Y": round(py, 4), "Z": round(pz, 4)}
+                self.new_capture_entries[(r, c)] = self._xyz_entries_compact(cell, init_pos)
 
         # Process
         pr_frame = ttk.LabelFrame(scroll_frame, text="Process")
@@ -509,6 +547,42 @@ class App(tk.Tk):
     # ───────────────────────────────────────────────────────────────────────
     #  Widgets-Helfer
     # ───────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _get_initial_position(rows, cols, row, col, width, height):
+        """Berechnet die initiale X/Y/Z Position für eine Grid-Zelle.
+
+        Koordinatensystem:
+          - X entspricht der Zeilen-Richtung (row), NICHT der Spalten-Richtung.
+          - Y entspricht der Spalten-Richtung (col).
+          - Das Serpentinenmuster wechselt die Spalten-Durchlaufrichtung pro Zeile:
+            gerade Zeilen (0, 2, …) → col aufsteigend,
+            ungerade Zeilen (1, 3, …) → col absteigend.
+
+        Args:
+            rows: Anzahl Zeilen im Grid.
+            cols: Anzahl Spalten im Grid.
+            row:  Aktuelle Zeile (0-basiert).
+            col:  Aktuelle Spalte (0-basiert, logische Position in der Matrix).
+            width: Breite = X-Span (Zeilen-Richtung).
+            height: Höhe = Y-Span (Spalten-Richtung).
+
+        Returns:
+            (posX, posY, posZ) als Tuple von float.
+        """
+        effective_col = col if row % 2 == 0 else cols - col - 1
+
+        min_bounds = (GRID_ORIGIN_X, GRID_ORIGIN_Y)
+        max_bounds = (GRID_ORIGIN_X + width, GRID_ORIGIN_Y + height)
+
+        span_x = max_bounds[0] - min_bounds[0]
+        span_y = max_bounds[1] - min_bounds[1]
+
+        pos_x = min_bounds[0] + (span_x / (rows - 1)) * row if rows > 1 else min_bounds[0]
+        pos_y = min_bounds[1] + (span_y / (cols - 1)) * effective_col if cols > 1 else min_bounds[1]
+        pos_z = DEFAULT_CAPTURE_Z
+
+        return pos_x, pos_y, pos_z
+
     @staticmethod
     def _xyz_entries(parent, pos_dict):
         """Erzeugt X/Y/Z Eingabefelder in einer Zeile und gibt (x_var, y_var, z_var) zurück."""
