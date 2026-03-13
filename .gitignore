@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+Typdaten_backup_*.json
+Limits.json
