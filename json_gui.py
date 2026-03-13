@@ -11,6 +11,12 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import ttk, messagebox
 
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 JSON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Typdaten.json")
 
 # ─── Standardlimits (werden über Tab "Einrichter" angepasst) ────────────────
@@ -121,6 +127,8 @@ class App(tk.Tk):
         self.edit_combo.pack(side="left", padx=6)
         self.edit_combo.bind("<<ComboboxSelected>>", self._on_type_selected)
 
+        ttk.Button(top, text="Quit", command=self.destroy).pack(side="right")
+
         # Scrollbarer Bereich
         container = ttk.Frame(self.tab_edit)
         container.pack(fill="both", expand=True)
@@ -165,6 +173,9 @@ class App(tk.Tk):
         info.pack(fill="x", padx=8, pady=4)
         ttk.Label(info, text=f"Description: {typ['Description']}    |    ImageGrid: {typ['ImageGrid']}").pack(
             anchor="w", padx=4, pady=2)
+
+        # --- Bild anzeigen (falls vorhanden) ---
+        self._show_type_image(typ_key, typ["ImageGrid"])
 
         # --- Diavite A & B ---
         diav_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Diavite Messungen")
@@ -220,6 +231,66 @@ class App(tk.Tk):
                 row_f = ttk.Frame(pr_frame)
                 row_f.pack(fill="x", padx=4, pady=2)
                 self.edit_process_entry = self._xyz_entries(row_f, pos["Position"])
+
+    def _show_type_image(self, typ_key, grid_str):
+        """Zeigt das Typbild und die Grid-Teilbilder an, falls eine Bilddatei existiert."""
+        if not PIL_AVAILABLE:
+            return
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        img_path = None
+        for ext in (".png", ".jpg", ".jpeg", ".bmp"):
+            candidate = os.path.join(base_dir, typ_key + ext)
+            if os.path.isfile(candidate):
+                img_path = candidate
+                break
+        if img_path is None:
+            return
+
+        img = Image.open(img_path)
+
+        img_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Typbild")
+        img_frame.pack(fill="x", padx=8, pady=4)
+
+        # Originalbild und Grid-Teilbilder nebeneinander
+        content = ttk.Frame(img_frame)
+        content.pack(fill="x", padx=4, pady=4)
+
+        # --- Originalbild (links) ---
+        orig_frame = ttk.Frame(content)
+        orig_frame.pack(side="left", anchor="n", padx=(0, 20))
+        ttk.Label(orig_frame, text="Original", font=("", 9, "bold")).pack()
+        photo = ImageTk.PhotoImage(img)
+        lbl = ttk.Label(orig_frame, image=photo)
+        lbl.image = photo  # Referenz halten
+        lbl.pack()
+
+        # --- Grid-Teilbilder (rechts) ---
+        rows, cols = parse_grid(grid_str)
+        w, h = img.size
+        cell_w = w // cols
+        cell_h = h // rows
+        gap = 10
+
+        grid_frame = ttk.Frame(content)
+        grid_frame.pack(side="left", anchor="n")
+        ttk.Label(grid_frame, text=f"Grid ({grid_str})", font=("", 9, "bold")).pack(anchor="w")
+
+        # Referenzliste für PhotoImages (gegen Garbage Collection)
+        self._grid_photos = []
+        for r in range(rows):
+            row_f = ttk.Frame(grid_frame)
+            row_f.pack(anchor="w", pady=(gap if r > 0 else 0, 0))
+            for c in range(cols):
+                x0 = c * cell_w
+                y0 = r * cell_h
+                x1 = x0 + cell_w
+                y1 = y0 + cell_h
+                cell_img = img.crop((x0, y0, x1, y1))
+                cell_photo = ImageTk.PhotoImage(cell_img)
+                cell_lbl = ttk.Label(row_f, image=cell_photo)
+                cell_lbl.image = cell_photo
+                cell_lbl.pack(side="left", padx=(gap if c > 0 else 0, 0))
+                self._grid_photos.append(cell_photo)
 
     def _save_edit(self):
         typ_key = self.edit_type_var.get()
@@ -331,12 +402,21 @@ class App(tk.Tk):
 
         f2 = ttk.Frame(self.new_wizard)
         f2.pack(fill="x", pady=(4, 0))
-        ttk.Label(f2, text="Breite:").pack(side="left")
-        self.new_width_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH))
-        ttk.Entry(f2, textvariable=self.new_width_var, width=20).pack(side="left", padx=6)
-        ttk.Label(f2, text="Höhe:").pack(side="left", padx=(8, 0))
-        self.new_height_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT))
-        ttk.Entry(f2, textvariable=self.new_height_var, width=20).pack(side="left", padx=6)
+        ttk.Label(f2, text="Breite links:").pack(side="left")
+        self.new_width_left_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH / 2))
+        ttk.Entry(f2, textvariable=self.new_width_left_var, width=14).pack(side="left", padx=6)
+        ttk.Label(f2, text="Breite rechts:").pack(side="left", padx=(8, 0))
+        self.new_width_right_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH / 2))
+        ttk.Entry(f2, textvariable=self.new_width_right_var, width=14).pack(side="left", padx=6)
+
+        f3 = ttk.Frame(self.new_wizard)
+        f3.pack(fill="x", pady=(4, 0))
+        ttk.Label(f3, text="Höhe oben:").pack(side="left")
+        self.new_height_above_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT / 2))
+        ttk.Entry(f3, textvariable=self.new_height_above_var, width=14).pack(side="left", padx=6)
+        ttk.Label(f3, text="Höhe unten:").pack(side="left", padx=(8, 0))
+        self.new_height_below_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT / 2))
+        ttk.Entry(f3, textvariable=self.new_height_below_var, width=14).pack(side="left", padx=6)
 
         bf = ttk.Frame(self.new_wizard)
         bf.pack(fill="x", pady=10)
@@ -353,8 +433,14 @@ class App(tk.Tk):
             return
 
         try:
-            width = float(self.new_width_var.get())
-            height = float(self.new_height_var.get())
+            width_left = float(self.new_width_left_var.get())
+            width_right = float(self.new_width_right_var.get())
+            height_above = float(self.new_height_above_var.get())
+            height_below = float(self.new_height_below_var.get())
+            assert width_left >= 0 and width_right >= 0
+            assert height_above >= 0 and height_below >= 0
+            width = width_left + width_right
+            height = height_above + height_below
             assert width > 0 and height > 0
         except Exception:
             messagebox.showwarning("Eingabe", "Breite und Höhe müssen positive Zahlen sein.")
