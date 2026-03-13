@@ -414,6 +414,9 @@ class App(tk.Tk):
         t_h = max(1, int(tile_h * scale))
 
         # Grid-Overlay zeichnen
+        # Startposition: start[i] = i * (total - tile) / (count - 1)  für count > 1, sonst 0.
+        # Negative Koordinaten (wenn Kachel größer als Bild) sind gewollt (Überlapp) –
+        # PIL schneidet Zeichnungen außerhalb des Bildes automatisch ab.
         grid_img = disp_original.copy().convert("RGB")
         draw = ImageDraw.Draw(grid_img)
         for r in range(rows):
