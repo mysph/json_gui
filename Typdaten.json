@@ -1,1 +1,95 @@
-{}
+{
+	"123456": {
+		"Description": "Python Script Generated",
+		"ImageGrid": "4x4",
+		"Positions": [
+			{ "PathPosAction": "DiaviteMeasurementA", "Position": { "X": 700.97, "Y": 119.12, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "DiaviteMeasurementB", "Position": { "X": 700.97, "Y": 162.56, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "PreStart", "Position": { "X": 935.7252861842105, "Y": 48.0, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 48.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 102.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 156.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 210.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 994.9050953947368, "Y": 210.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 994.9050953947368, "Y": 156.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 994.9050953947368, "Y": 102.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 994.9050953947368, "Y": 48.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1054.084904605263, "Y": 48.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1054.084904605263, "Y": 102.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1054.084904605263, "Y": 156.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1054.084904605263, "Y": 210.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 210.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 156.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 102.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 48.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 0 },
+			{ "PathPosAction": "Process", "Position": { "X": 1113.2647138157895, "Y": 48.0, "Z": 17.83 }, "CellRow": -1, "CellColumn": -1 }
+		]
+	},
+	
+	"123457": {
+		"Description": "Python Script Generated",
+		"ImageGrid": "5x5",
+		"Positions": [
+			{ "PathPosAction": "DiaviteMeasurementA", "Position": { "X": 700.97, "Y": 119.12, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "DiaviteMeasurementB", "Position": { "X": 700.97, "Y": 162.56, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "PreStart", "Position": { "X": 935.7252861842105, "Y": 48.0, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 48.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 88.5, "Z": 17.83 }, "CellRow": 0, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 129.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 169.5, "Z": 17.83 }, "CellRow": 0, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 210.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 4 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 210.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 4 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 169.5, "Z": 17.83 }, "CellRow": 1, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 129.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 88.5, "Z": 17.83 }, "CellRow": 1, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 48.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 48.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 88.5, "Z": 17.83 }, "CellRow": 2, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 129.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 169.5, "Z": 17.83 }, "CellRow": 2, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 210.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 4 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 210.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 4 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 169.5, "Z": 17.83 }, "CellRow": 3, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 129.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 88.5, "Z": 17.83 }, "CellRow": 3, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 48.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 48.0, "Z": 17.83 }, "CellRow": 4, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 88.5, "Z": 17.83 }, "CellRow": 4, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 129.0, "Z": 17.83 }, "CellRow": 4, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 169.5, "Z": 17.83 }, "CellRow": 4, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 210.0, "Z": 17.83 }, "CellRow": 4, "CellColumn": 4 },
+			{ "PathPosAction": "Process", "Position": { "X": 1113.2647138157895, "Y": 210.0, "Z": 17.83 }, "CellRow": -1, "CellColumn": -1 }
+		]
+	},
+	
+	"5123458": {
+		"Description": "Python Script Generated",
+		"ImageGrid": "5x4",
+		"Positions": [
+			{ "PathPosAction": "DiaviteMeasurementA", "Position": { "X": 700.97, "Y": 119.12, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "DiaviteMeasurementB", "Position": { "X": 700.97, "Y": 162.56, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "PreStart", "Position": { "X": 935.7252861842105, "Y": 48.0, "Z": 50 }, "CellRow": -1, "CellColumn": -1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 48.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 102.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 156.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 935.7252861842105, "Y": 210.0, "Z": 17.83 }, "CellRow": 0, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 210.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 156.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 102.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 980.1101430921053, "Y": 48.0, "Z": 17.83 }, "CellRow": 1, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 48.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 102.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 156.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1024.495, "Y": 210.0, "Z": 17.83 }, "CellRow": 2, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 210.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 3 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 156.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 102.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1068.8798569078947, "Y": 48.0, "Z": 17.83 }, "CellRow": 3, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 48.0, "Z": 17.83 }, "CellRow": 4, "CellColumn": 0 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 102.0, "Z": 17.83 }, "CellRow": 4, "CellColumn": 1 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 156.0, "Z": 17.83 }, "CellRow": 4, "CellColumn": 2 },
+			{ "PathPosAction": "CaptureImage", "Position": { "X": 1113.2647138157895, "Y": 210.0, "Z": 17.83 }, "CellRow": 4, "CellColumn": 3 },
+			{ "PathPosAction": "Process", "Position": { "X": 1113.2647138157895, "Y": 210.0, "Z": 17.83 }, "CellRow": -1, "CellColumn": -1 }
+		]
+	}
+}
