@@ -12,7 +12,7 @@ from datetime import datetime
 from tkinter import ttk, messagebox
 
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageDraw, ImageTk
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -297,10 +297,6 @@ class App(tk.Tk):
         tile_w_px = max(1, int(tile_w * scale))
         tile_h_px = max(1, int(tile_h * scale))
 
-        # Display-Tile-Größe für Mosaik: entspricht dem Grid-Spacing (damit Mosaik kompakt bleibt)
-        t_w = max(1, int(step_x * scale))
-        t_h = max(1, int(step_y * scale))
-
         # Bild 1: Skaliertes Originalbild
         lf1 = ttk.LabelFrame(parent, text="Originalbild")
         lf1.pack(side="left", padx=4, anchor="n")
@@ -329,23 +325,24 @@ class App(tk.Tk):
                 lbl.pack(side="left")
                 photo_list.append(ph)
 
-        # Bild 3: Grid-Mosaik mit 3px Abstand zwischen den Kacheln
-        GAP = 3
-        mosaic_w = max(1, cols * t_w + (cols - 1) * GAP)
-        mosaic_h = max(1, rows * t_h + (rows - 1) * GAP)
-        mosaic = Image.new("RGB", (mosaic_w, mosaic_h), (200, 200, 200))
+        # Bild 3: Überlapp-Visualisierung – Gesamtbild mit eingezeichneten Kachel-Positionen
+        overlay_base = disp_img.convert("RGBA")
+        overlay = Image.new("RGBA", overlay_base.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        tile_w_s = max(1, int(tile_w * scale))
+        tile_h_s = max(1, int(tile_h * scale))
         for r in range(rows):
             for c in range(cols):
-                x0 = int(c * step_x)
-                y0 = int(r * step_y)
-                x1 = min(x0 + tile_w, img_w)
-                y1 = min(y0 + tile_h, img_h)
-                tile = img.crop((x0, y0, x1, y1))
-                tile_s = tile.resize((t_w, t_h), Image.LANCZOS)
-                mosaic.paste(tile_s, (c * (t_w + GAP), r * (t_h + GAP)))
-        lf3 = ttk.LabelFrame(parent, text=f"Grid mit Abstand ({grid_str})")
+                x0_s = int(c * step_x * scale)
+                y0_s = int(r * step_y * scale)
+                x1_s = min(x0_s + tile_w_s, disp_w)
+                y1_s = min(y0_s + tile_h_s, disp_h)
+                draw.rectangle([x0_s, y0_s, x1_s, y1_s], fill=(100, 150, 255, 60))
+                draw.rectangle([x0_s, y0_s, x1_s, y1_s], outline=(0, 80, 200, 180), width=2)
+        result3 = Image.alpha_composite(overlay_base, overlay).convert("RGB")
+        lf3 = ttk.LabelFrame(parent, text=f"Kachel-Lage ({grid_str})")
         lf3.pack(side="left", padx=4, anchor="n")
-        ph3 = ImageTk.PhotoImage(mosaic)
+        ph3 = ImageTk.PhotoImage(result3)
         lbl3 = ttk.Label(lf3, image=ph3)
         lbl3.image = ph3
         lbl3.pack()
@@ -885,6 +882,9 @@ class App(tk.Tk):
     def _corners_show_step0(self):
         self._clear_corners_wizard()
         self.corners_step = 0
+        for attr in ("corners_grid_var", "corners_preview_frame"):
+            if hasattr(self, attr):
+                delattr(self, attr)
         ttk.Label(self.corners_wizard, text="Schritt 1: Typnummer eingeben", font=("", 12, "bold")).pack(
             anchor="w", pady=(0, 8))
         f = ttk.Frame(self.corners_wizard)
@@ -902,16 +902,96 @@ class App(tk.Tk):
         if tnr in self.data:
             messagebox.showwarning("Duplikat", f"Typ {tnr} existiert bereits.")
             return
+        self._corners_display_step1()
+
+    def _corners_display_step1(self):
+        """Schritt 2: ImageGrid eingeben + Bildvorschau."""
         self._clear_corners_wizard()
         self.corners_step = 1
-        ttk.Label(self.corners_wizard, text=f"Schritt 2: Grid & Eckpunkte für Typ {tnr}",
+        tnr = self.corners_typnr_var.get().strip()
+        ttk.Label(self.corners_wizard, text=f"Schritt 2: ImageGrid für Typ {tnr}",
                   font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
+        f = ttk.Frame(self.corners_wizard)
+        f.pack(fill="x")
+        ttk.Label(f, text="ImageGrid (z.B. 4x4):").pack(side="left")
+        if not hasattr(self, "corners_grid_var"):
+            self.corners_grid_var = tk.StringVar()
+            self.corners_grid_var.trace_add("write", lambda *_a: self._corners_update_preview())
+        ttk.Entry(f, textvariable=self.corners_grid_var, width=10).pack(side="left", padx=6)
 
-        f_grid = ttk.Frame(self.corners_wizard)
-        f_grid.pack(fill="x")
-        ttk.Label(f_grid, text="ImageGrid (z.B. 4x4):").pack(side="left")
-        self.corners_grid_var = tk.StringVar()
-        ttk.Entry(f_grid, textvariable=self.corners_grid_var, width=10).pack(side="left", padx=6)
+        # Preview-Frame (wird von _corners_update_preview befüllt)
+        self.corners_preview_frame = ttk.Frame(self.corners_wizard)
+        self.corners_preview_frame.pack(fill="x", pady=(8, 0))
+
+        bf = ttk.Frame(self.corners_wizard)
+        bf.pack(fill="x", pady=10)
+        ttk.Button(bf, text="⬅ Zurück", command=self._corners_show_step0).pack(side="left")
+        ttk.Button(bf, text="Weiter ➜", command=self._corners_goto_step2).pack(side="right")
+
+        # Vorschau anzeigen falls bereits ein Wert vorhanden
+        self._corners_update_preview()
+
+    def _corners_update_preview(self):
+        """Sucht ein passendes Bild und zeigt 3 Bildvorschauen an (Original, Einzelbilder, Kachel-Lage)."""
+        if not hasattr(self, "corners_preview_frame") or not self.corners_preview_frame.winfo_exists():
+            return
+        for w in self.corners_preview_frame.winfo_children():
+            w.destroy()
+        self._corners_img_photos = []
+
+        grid_str = self.corners_grid_var.get().strip()
+        if not grid_str:
+            return
+        try:
+            rows, cols = parse_grid(grid_str)
+            if rows <= 0 or cols <= 0:
+                return
+        except Exception:
+            return
+
+        if not PIL_AVAILABLE:
+            ttk.Label(self.corners_preview_frame,
+                      text="Pillow (PIL) nicht verfügbar – Bildvorschau nicht möglich.").pack(anchor="w")
+            return
+
+        tnr = self.corners_typnr_var.get().strip()
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        img_path = None
+        for fname in os.listdir(script_dir):
+            if fname.lower().endswith(".png"):
+                stem = os.path.splitext(fname)[0]
+                if stem in tnr:
+                    img_path = os.path.join(script_dir, fname)
+                    break
+        if img_path is None:
+            return
+
+        try:
+            original_img = Image.open(img_path)
+        except Exception:
+            return
+
+        self._build_three_images(self.corners_preview_frame, original_img, grid_str, self._corners_img_photos)
+
+    def _corners_goto_step2(self):
+        """Schritt 2 → 3: ImageGrid validieren, dann Eckpunkte-Schritt anzeigen."""
+        grid_str = self.corners_grid_var.get().strip()
+        try:
+            rows, cols = parse_grid(grid_str)
+            assert rows > 0 and cols > 0
+        except Exception:
+            messagebox.showwarning("Eingabe", "Ungültiges Grid-Format. Bitte z.B. '4x4' eingeben.")
+            return
+        self._corners_display_step2()
+
+    def _corners_display_step2(self):
+        """Schritt 3: Eckpunkte eingeben (Grid wurde bereits in Schritt 2 erfasst)."""
+        self._clear_corners_wizard()
+        self.corners_step = 2
+        tnr = self.corners_typnr_var.get().strip()
+        grid_str = self.corners_grid_var.get().strip()
+        ttk.Label(self.corners_wizard, text=f"Schritt 3: Grid & Eckpunkte für Typ {tnr}",
+                  font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
 
         # Position oben links (Row 0, Col 0)
         tl_frame = ttk.LabelFrame(self.corners_wizard, text="Position oben links (Row 0, Col 0)")
@@ -929,10 +1009,10 @@ class App(tk.Tk):
 
         bf = ttk.Frame(self.corners_wizard)
         bf.pack(fill="x", pady=10)
-        ttk.Button(bf, text="⬅ Zurück", command=self._corners_show_step0).pack(side="left")
-        ttk.Button(bf, text="Weiter ➜", command=self._corners_goto_step2).pack(side="right")
+        ttk.Button(bf, text="⬅ Zurück", command=self._corners_display_step1).pack(side="left")
+        ttk.Button(bf, text="Weiter ➜", command=self._corners_goto_step3).pack(side="right")
 
-    def _corners_goto_step2(self):
+    def _corners_goto_step3(self):
         grid_str = self.corners_grid_var.get().strip()
         try:
             rows, cols = parse_grid(grid_str)
@@ -953,10 +1033,10 @@ class App(tk.Tk):
             return
 
         self._clear_corners_wizard()
-        self.corners_step = 2
+        self.corners_step = 3
         tnr = self.corners_typnr_var.get().strip()
 
-        ttk.Label(self.corners_wizard, text=f"Schritt 3: Positionen für Typ {tnr} ({grid_str})",
+        ttk.Label(self.corners_wizard, text=f"Schritt 4: Positionen für Typ {tnr} ({grid_str})",
                   font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
 
         # Scrollbar
@@ -1022,7 +1102,7 @@ class App(tk.Tk):
         # Buttons
         bf = ttk.Frame(self.corners_wizard)
         bf.pack(fill="x", pady=6)
-        ttk.Button(bf, text="⬅ Zurück", command=self._corners_goto_step1).pack(side="left")
+        ttk.Button(bf, text="⬅ Zurück", command=self._corners_display_step2).pack(side="left")
         ttk.Button(bf, text="💾  Neuen Typ speichern",
                    command=lambda: self._save_corners(rows, cols, grid_str)).pack(side="right")
 
