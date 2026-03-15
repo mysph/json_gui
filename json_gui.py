@@ -38,6 +38,32 @@ def load_json():
     with open(JSON_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
+def _format_json(data):
+    """Formatiert die JSON-Daten so, dass jeder Positions-Eintrag auf einer Zeile steht."""
+    lines = []
+    lines.append("{")
+    type_keys = list(data.keys())
+    for ti, typ_key in enumerate(type_keys):
+        typ = data[typ_key]
+        lines.append(f'\t"{typ_key}": {{')
+        lines.append(f'\t\t"Description": {json.dumps(typ["Description"], ensure_ascii=False)},')
+        lines.append(f'\t\t"ImageGrid": {json.dumps(typ["ImageGrid"], ensure_ascii=False)},')
+        lines.append('\t\t"Positions": [')
+        positions = typ["Positions"]
+        for pi, pos in enumerate(positions):
+            entry = json.dumps(pos, ensure_ascii=False)
+            # Leerzeichen innerhalb der geschweiften Klammern einfügen
+            entry = entry.replace("{", "{ ").replace("}", " }")
+            comma = "," if pi < len(positions) - 1 else ""
+            lines.append(f"\t\t\t{entry}{comma}")
+        lines.append("\t\t]")
+        comma = "," if ti < len(type_keys) - 1 else ""
+        lines.append(f"\t}}{comma}")
+        if ti < len(type_keys) - 1:
+            lines.append("")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
 def save_json(data):
     if os.path.exists(JSON_FILE):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -47,7 +73,7 @@ def save_json(data):
         )
         shutil.copy2(JSON_FILE, backup_path)
     with open(JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent="\t", ensure_ascii=False)
+        f.write(_format_json(data))
 
 def load_limits():
     if os.path.exists(LIMITS_FILE):
@@ -102,7 +128,12 @@ class App(tk.Tk):
         self.notebook.add(self.tab_new, text="Neuen Typ anlegen")
         self._build_new_tab()
 
-        # --- Tab 3: Einrichter (Limits) ---
+        # --- Tab 3: Neuer Typ (Eckpunkte) ---
+        self.tab_corners = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_corners, text="Neuer Typ (Eckpunkte)")
+        self._build_corners_tab()
+
+        # --- Tab 4: Einrichter (Limits) ---
         self.tab_limits = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_limits, text="Einrichter – Limits")
         self._build_limits_tab()
@@ -329,6 +360,15 @@ class App(tk.Tk):
         self.new_grid_var = tk.StringVar()
         ttk.Entry(f, textvariable=self.new_grid_var, width=10).pack(side="left", padx=6)
 
+        f_origin = ttk.Frame(self.new_wizard)
+        f_origin.pack(fill="x", pady=(4, 0))
+        ttk.Label(f_origin, text="Ursprung X:").pack(side="left")
+        self.new_origin_x_var = tk.StringVar(value=str(GRID_ORIGIN_X))
+        ttk.Entry(f_origin, textvariable=self.new_origin_x_var, width=20).pack(side="left", padx=6)
+        ttk.Label(f_origin, text="Ursprung Y:").pack(side="left", padx=(8, 0))
+        self.new_origin_y_var = tk.StringVar(value=str(GRID_ORIGIN_Y))
+        ttk.Entry(f_origin, textvariable=self.new_origin_y_var, width=20).pack(side="left", padx=6)
+
         f2 = ttk.Frame(self.new_wizard)
         f2.pack(fill="x", pady=(4, 0))
         ttk.Label(f2, text="Breite:").pack(side="left")
@@ -358,6 +398,13 @@ class App(tk.Tk):
             assert width > 0 and height > 0
         except Exception:
             messagebox.showwarning("Eingabe", "Breite und Höhe müssen positive Zahlen sein.")
+            return
+
+        try:
+            origin_x = float(self.new_origin_x_var.get())
+            origin_y = float(self.new_origin_y_var.get())
+        except Exception:
+            messagebox.showwarning("Eingabe", "Ursprung X und Y müssen gültige Zahlen sein.")
             return
 
         self._clear_wizard()
@@ -415,7 +462,7 @@ class App(tk.Tk):
             for c in range(cols):
                 cell = ttk.Frame(row_frame, relief="groove", borderwidth=1)
                 cell.pack(side="left", padx=2, pady=1)
-                px, py, pz = self._get_initial_position(rows, cols, r, c, width, height)
+                px, py, pz = self._get_initial_position(rows, cols, r, c, width, height, origin_x, origin_y)
                 init_pos = {"X": round(px, 4), "Y": round(py, 4), "Z": round(pz, 4)}
                 self.new_capture_entries[(r, c)] = self._xyz_entries_compact(cell, init_pos)
 
@@ -499,7 +546,250 @@ class App(tk.Tk):
         self._new_show_step0()
 
     # ───────────────────────────────────────────────────────────────────────
-    #  TAB 3 – Einrichter (Limits)
+    #  TAB 3 – Neuer Typ (Eckpunkte)
+    # ───────────────────────────────────────────────────────────────────────
+    def _build_corners_tab(self):
+        self.corners_step = 0
+
+        self.corners_wizard = ttk.Frame(self.tab_corners)
+        self.corners_wizard.pack(fill="both", expand=True, padx=8, pady=6)
+
+        self._corners_show_step0()
+
+    def _clear_corners_wizard(self):
+        for w in self.corners_wizard.winfo_children():
+            w.destroy()
+
+    def _corners_show_step0(self):
+        self._clear_corners_wizard()
+        self.corners_step = 0
+        ttk.Label(self.corners_wizard, text="Schritt 1: Typnummer eingeben", font=("", 12, "bold")).pack(
+            anchor="w", pady=(0, 8))
+        f = ttk.Frame(self.corners_wizard)
+        f.pack(fill="x")
+        ttk.Label(f, text="Typnummer:").pack(side="left")
+        self.corners_typnr_var = tk.StringVar()
+        ttk.Entry(f, textvariable=self.corners_typnr_var, width=20).pack(side="left", padx=6)
+        ttk.Button(self.corners_wizard, text="Weiter ➜", command=self._corners_goto_step1).pack(anchor="e", pady=10)
+
+    def _corners_goto_step1(self):
+        tnr = self.corners_typnr_var.get().strip()
+        if not tnr:
+            messagebox.showwarning("Eingabe", "Bitte Typnummer eingeben.")
+            return
+        if tnr in self.data:
+            messagebox.showwarning("Duplikat", f"Typ {tnr} existiert bereits.")
+            return
+        self._clear_corners_wizard()
+        self.corners_step = 1
+        ttk.Label(self.corners_wizard, text=f"Schritt 2: Grid & Eckpunkte für Typ {tnr}",
+                  font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
+
+        f_grid = ttk.Frame(self.corners_wizard)
+        f_grid.pack(fill="x")
+        ttk.Label(f_grid, text="ImageGrid (z.B. 4x4):").pack(side="left")
+        self.corners_grid_var = tk.StringVar()
+        ttk.Entry(f_grid, textvariable=self.corners_grid_var, width=10).pack(side="left", padx=6)
+
+        # Position oben links (Row 0, Col 0)
+        tl_frame = ttk.LabelFrame(self.corners_wizard, text="Position oben links (Row 0, Col 0)")
+        tl_frame.pack(fill="x", pady=(8, 4))
+        tl_inner = ttk.Frame(tl_frame)
+        tl_inner.pack(fill="x", padx=4, pady=4)
+        self.corners_tl_vars = self._xyz_entries(tl_inner, {"X": 0, "Y": 0, "Z": DEFAULT_CAPTURE_Z})
+
+        # Position unten rechts (Row max, Col max)
+        br_frame = ttk.LabelFrame(self.corners_wizard, text="Position unten rechts (Row max, Col max)")
+        br_frame.pack(fill="x", pady=4)
+        br_inner = ttk.Frame(br_frame)
+        br_inner.pack(fill="x", padx=4, pady=4)
+        self.corners_br_vars = self._xyz_entries(br_inner, {"X": 0, "Y": 0, "Z": DEFAULT_CAPTURE_Z})
+
+        bf = ttk.Frame(self.corners_wizard)
+        bf.pack(fill="x", pady=10)
+        ttk.Button(bf, text="⬅ Zurück", command=self._corners_show_step0).pack(side="left")
+        ttk.Button(bf, text="Weiter ➜", command=self._corners_goto_step2).pack(side="right")
+
+    def _corners_goto_step2(self):
+        grid_str = self.corners_grid_var.get().strip()
+        try:
+            rows, cols = parse_grid(grid_str)
+            assert rows > 0 and cols > 0
+        except Exception:
+            messagebox.showwarning("Eingabe", "Ungültiges Grid-Format. Bitte z.B. '4x4' eingeben.")
+            return
+
+        try:
+            tl_x = float(self.corners_tl_vars[0].get())
+            tl_y = float(self.corners_tl_vars[1].get())
+            tl_z = float(self.corners_tl_vars[2].get())
+            br_x = float(self.corners_br_vars[0].get())
+            br_y = float(self.corners_br_vars[1].get())
+            br_z = float(self.corners_br_vars[2].get())
+        except ValueError:
+            messagebox.showwarning("Eingabe", "Bitte gültige Zahlenwerte für die Eckpunkte eingeben.")
+            return
+
+        self._clear_corners_wizard()
+        self.corners_step = 2
+        tnr = self.corners_typnr_var.get().strip()
+
+        ttk.Label(self.corners_wizard, text=f"Schritt 3: Positionen für Typ {tnr} ({grid_str})",
+                  font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
+
+        # Scrollbar
+        container = ttk.Frame(self.corners_wizard)
+        container.pack(fill="both", expand=True)
+        canvas = tk.Canvas(container)
+        sb = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+
+        # Diavite
+        diav_frame = ttk.LabelFrame(scroll_frame, text="Diavite Messungen")
+        diav_frame.pack(fill="x", padx=4, pady=4)
+        self.corners_diavite = []
+        for label in ("Diavite A", "Diavite B"):
+            rf = ttk.Frame(diav_frame)
+            rf.pack(fill="x", padx=4, pady=2)
+            ttk.Label(rf, text=label, width=14).pack(side="left")
+            self.corners_diavite.append(self._xyz_entries(rf, {"X": 0, "Y": 0, "Z": 0}))
+
+        # PreStart
+        ps_frame = ttk.LabelFrame(scroll_frame, text="PreStart")
+        ps_frame.pack(fill="x", padx=4, pady=4)
+        rf = ttk.Frame(ps_frame)
+        rf.pack(fill="x", padx=4, pady=2)
+        self.corners_prestart = self._xyz_entries(rf, {"X": 0, "Y": 0, "Z": 0})
+
+        # CaptureImage Matrix – berechnet aus den Eckpunkten
+        cap_frame = ttk.LabelFrame(scroll_frame, text=f"CaptureImage  ({grid_str})")
+        cap_frame.pack(fill="x", padx=4, pady=4)
+
+        header = ttk.Frame(cap_frame)
+        header.pack(fill="x", padx=4, pady=2)
+        ttk.Label(header, text="", width=10).pack(side="left")
+        for c in range(cols):
+            ttk.Label(header, text=f"Col {c}", width=28, anchor="center").pack(side="left", padx=2)
+
+        self.corners_capture_entries = {}
+        for r in range(rows):
+            row_frame = ttk.Frame(cap_frame)
+            row_frame.pack(fill="x", padx=4, pady=1)
+            ttk.Label(row_frame, text=f"Row {r}", width=10).pack(side="left")
+            for c in range(cols):
+                cell = ttk.Frame(row_frame, relief="groove", borderwidth=1)
+                cell.pack(side="left", padx=2, pady=1)
+                px, py, pz = self._calc_corner_position(
+                    rows, cols, r, c, tl_x, tl_y, tl_z, br_x, br_y, br_z)
+                init_pos = {"X": round(px, 4), "Y": round(py, 4), "Z": round(pz, 4)}
+                self.corners_capture_entries[(r, c)] = self._xyz_entries_compact(cell, init_pos)
+
+        # Process
+        pr_frame = ttk.LabelFrame(scroll_frame, text="Process")
+        pr_frame.pack(fill="x", padx=4, pady=4)
+        rf2 = ttk.Frame(pr_frame)
+        rf2.pack(fill="x", padx=4, pady=2)
+        self.corners_process = self._xyz_entries(rf2, {"X": 0, "Y": 0, "Z": 0})
+
+        # Buttons
+        bf = ttk.Frame(self.corners_wizard)
+        bf.pack(fill="x", pady=6)
+        ttk.Button(bf, text="⬅ Zurück", command=self._corners_goto_step1).pack(side="left")
+        ttk.Button(bf, text="💾  Neuen Typ speichern",
+                   command=lambda: self._save_corners(rows, cols, grid_str)).pack(side="right")
+
+    @staticmethod
+    def _calc_corner_position(rows, cols, row, col, tl_x, tl_y, tl_z, br_x, br_y, br_z):
+        """Berechnet die Position einer Grid-Zelle aus den beiden Eckpunkten (oben links / unten rechts).
+
+        Args:
+            rows, cols: Grid-Dimensionen.
+            row, col: Aktuelle Zelle (0-basiert, logische Position).
+            tl_x, tl_y, tl_z: Position oben links (Row 0, Col 0).
+            br_x, br_y, br_z: Position unten rechts (Row max, Col max).
+
+        Returns:
+            (posX, posY, posZ) als Tuple von float.
+        """
+        pos_x = tl_x + (br_x - tl_x) / (rows - 1) * row if rows > 1 else tl_x
+        pos_y = tl_y + (br_y - tl_y) / (cols - 1) * col if cols > 1 else tl_y
+        pos_z = tl_z + (br_z - tl_z) / (rows - 1) * row if rows > 1 else tl_z
+
+        return pos_x, pos_y, pos_z
+
+    def _save_corners(self, rows, cols, grid_str):
+        tnr = self.corners_typnr_var.get().strip()
+        errors = []
+        positions = []
+
+        # Diavite
+        actions = ["DiaviteMeasurementA", "DiaviteMeasurementB"]
+        for i, (xv, yv, zv) in enumerate(self.corners_diavite):
+            try:
+                pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+            except ValueError:
+                errors.append(f"{actions[i]}: ungültige Zahlenwerte")
+                continue
+            errors.extend(validate_position(pos, "Diavite", self.limits))
+            positions.append({"PathPosAction": actions[i], "Position": pos, "CellRow": -1, "CellColumn": -1})
+
+        # PreStart
+        xv, yv, zv = self.corners_prestart
+        try:
+            pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+            positions.append({"PathPosAction": "PreStart", "Position": pos, "CellRow": -1, "CellColumn": -1})
+        except ValueError:
+            errors.append("PreStart: ungültige Zahlenwerte")
+
+        # CaptureImage – Serpentinenmuster
+        for r in range(rows):
+            if r % 2 == 0:
+                col_range = range(cols)
+            else:
+                col_range = range(cols - 1, -1, -1)
+            for c in col_range:
+                xv, yv, zv = self.corners_capture_entries[(r, c)]
+                try:
+                    pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+                except ValueError:
+                    errors.append(f"CaptureImage Row {r} Col {c}: ungültige Zahlenwerte")
+                    continue
+                errors.extend(validate_position(pos, "CaptureImage", self.limits))
+                positions.append({"PathPosAction": "CaptureImage", "Position": pos, "CellRow": r, "CellColumn": c})
+
+        # Process
+        xv, yv, zv = self.corners_process
+        try:
+            pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+            positions.append({"PathPosAction": "Process", "Position": pos, "CellRow": -1, "CellColumn": -1})
+        except ValueError:
+            errors.append("Process: ungültige Zahlenwerte")
+
+        if errors:
+            messagebox.showerror("Plausibilitätsprüfung fehlgeschlagen", "\n".join(errors))
+            return
+
+        self.data[tnr] = {
+            "Description": "Python Script Generated",
+            "ImageGrid": grid_str,
+            "Positions": positions,
+        }
+        save_json(self.data)
+
+        # Dropdown in Tab 1 aktualisieren
+        self.edit_combo["values"] = sorted(self.data.keys())
+
+        messagebox.showinfo("Gespeichert", f"Neuer Typ {tnr} erfolgreich gespeichert.")
+        self._corners_show_step0()
+
+    # ───────────────────────────────────────────────────────────────────────
+    #  TAB 4 – Einrichter (Limits)
     # ───────────────────────────────────────────────────────────────────────
     def _build_limits_tab(self):
         ttk.Label(self.tab_limits, text="Min / Max Limits für Plausibilitätsprüfung",
@@ -548,7 +838,7 @@ class App(tk.Tk):
     #  Widgets-Helfer
     # ───────────────────────────────────────────────────────────────────────
     @staticmethod
-    def _get_initial_position(rows, cols, row, col, width, height):
+    def _get_initial_position(rows, cols, row, col, width, height, origin_x=None, origin_y=None):
         """Berechnet die initiale X/Y/Z Position für eine Grid-Zelle.
 
         Koordinatensystem:
@@ -565,14 +855,21 @@ class App(tk.Tk):
             col:  Aktuelle Spalte (0-basiert, logische Position in der Matrix).
             width: Breite = X-Span (Zeilen-Richtung).
             height: Höhe = Y-Span (Spalten-Richtung).
+            origin_x: Ursprung X (Standard: GRID_ORIGIN_X).
+            origin_y: Ursprung Y (Standard: GRID_ORIGIN_Y).
 
         Returns:
             (posX, posY, posZ) als Tuple von float.
         """
+        if origin_x is None:
+            origin_x = GRID_ORIGIN_X
+        if origin_y is None:
+            origin_y = GRID_ORIGIN_Y
+
         effective_col = col if row % 2 == 0 else cols - col - 1
 
-        min_bounds = (GRID_ORIGIN_X, GRID_ORIGIN_Y)
-        max_bounds = (GRID_ORIGIN_X + width, GRID_ORIGIN_Y + height)
+        min_bounds = (origin_x, origin_y)
+        max_bounds = (origin_x + width, origin_y + height)
 
         span_x = max_bounds[0] - min_bounds[0]
         span_y = max_bounds[1] - min_bounds[1]
