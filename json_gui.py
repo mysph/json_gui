@@ -12,7 +12,7 @@ from datetime import datetime
 from tkinter import ttk, messagebox
 
 try:
-    from PIL import Image, ImageDraw, ImageTk
+    from PIL import Image, ImageTk
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -184,22 +184,26 @@ class App(tk.Tk):
         self.edit_canvas.bind_all("<MouseWheel>",
                                   lambda e: self.edit_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
 
-        # Speichern-Button
+        # Speichern- und Löschen-Buttons
         btn_frame = ttk.Frame(self.tab_edit)
         btn_frame.pack(fill="x", padx=8, pady=6)
         ttk.Button(btn_frame, text="💾  Änderungen speichern", command=self._save_edit).pack(side="right")
+        ttk.Button(btn_frame, text="🗑 Typ löschen", command=self._delete_type).pack(side="left")
 
         # Datencontainer
         self.edit_diavite_entries = []  # [(action_name, (x_var, y_var, z_var)), ...]
         self.edit_capture_entries = {}  # {(row, col): (x_var, y_var, z_var)}
         self.edit_prestart_entry = None
         self.edit_process_entry = None
+        self.current_edit_type = None
+        self.edit_imagegrid_var = tk.StringVar()
 
     def _on_type_selected(self, _event=None):
         typ_key = self.edit_type_var.get()
         if not typ_key:
             return
         typ = self.data[typ_key]
+        self.current_edit_type = typ_key
 
         # Alten Inhalt löschen
         for w in self.edit_scroll_frame.winfo_children():
@@ -210,11 +214,21 @@ class App(tk.Tk):
         # --- Description & Grid ---
         info = ttk.LabelFrame(self.edit_scroll_frame, text="Info")
         info.pack(fill="x", padx=8, pady=4)
-        ttk.Label(info, text=f"Description: {typ['Description']}    |    ImageGrid: {typ['ImageGrid']}").pack(
-            anchor="w", padx=4, pady=2)
+        ttk.Label(info, text=f"Description: {typ['Description']}").pack(anchor="w", padx=4, pady=2)
+        grid_row = ttk.Frame(info)
+        grid_row.pack(anchor="w", padx=4, pady=2)
+        ttk.Label(grid_row, text="ImageGrid:").pack(side="left")
+        self.edit_imagegrid_var = tk.StringVar(value=typ["ImageGrid"])
+        grid_entry = ttk.Entry(grid_row, textvariable=self.edit_imagegrid_var, width=10)
+        grid_entry.pack(side="left", padx=6)
+        grid_entry.bind("<FocusOut>", self._on_imagegrid_changed)
+        grid_entry.bind("<Return>", self._on_imagegrid_changed)
+        ttk.Label(grid_row, text="(Format: NxM, z.B. 4x4)").pack(side="left", padx=4)
 
-        # --- Bild anzeigen (falls vorhanden) ---
-        self._show_type_image(typ_key, typ["ImageGrid"])
+        # --- Bild-Container (Platzhalter für 3 Bildvorschauen) ---
+        self.edit_img_container = ttk.Frame(self.edit_scroll_frame)
+        self.edit_img_container.pack(fill="x", padx=8, pady=4)
+        self._populate_edit_images()
 
         # --- Diavite A & B ---
         diav_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Diavite Messungen")
@@ -237,12 +251,131 @@ class App(tk.Tk):
                 row_f.pack(fill="x", padx=4, pady=2)
                 self.edit_prestart_entry = self._xyz_entries(row_f, pos["Position"])
 
-        # --- CaptureImage Matrix ---
+        # --- CaptureImage Matrix (Platzhalter) ---
         rows, cols = parse_grid(typ["ImageGrid"])
-        cap_frame = ttk.LabelFrame(self.edit_scroll_frame, text=f"CaptureImage  ({typ['ImageGrid']})")
-        cap_frame.pack(fill="x", padx=8, pady=4)
+        self.edit_cap_outer = ttk.Frame(self.edit_scroll_frame)
+        self.edit_cap_outer.pack(fill="x", padx=8, pady=4)
+        self._populate_edit_cap_matrix(rows, cols, typ)
 
-        # Spaltenüberschriften
+        # --- Process ---
+        for pos in typ["Positions"]:
+            if pos["PathPosAction"] == "Process":
+                pr_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Process")
+                pr_frame.pack(fill="x", padx=8, pady=4)
+                row_f = ttk.Frame(pr_frame)
+                row_f.pack(fill="x", padx=4, pady=2)
+                self.edit_process_entry = self._xyz_entries(row_f, pos["Position"])
+
+    def _build_three_images(self, parent, img, grid_str, photo_list):
+        """Baut 3 Bildvorschauen in parent: skaliertes Original, Einzelbilder, Grid-Mosaik (3px Abstand).
+
+        photo_list: Liste, in die ImageTk.PhotoImage-Referenzen eingefügt werden (gegen GC).
+        """
+        MAX_W = 400
+        img_w, img_h = img.size
+        scale = min(1.0, MAX_W / img_w)
+        disp_w = max(1, int(img_w * scale))
+        disp_h = max(1, int(img_h * scale))
+        disp_img = img.resize((disp_w, disp_h), Image.LANCZOS)
+
+        try:
+            rows, cols = parse_grid(grid_str)
+            if rows <= 0 or cols <= 0:
+                raise ValueError("rows/cols müssen positiv sein")
+        except Exception:
+            rows, cols = 1, 1
+
+        cell_w = max(1, img_w // cols)
+        cell_h = max(1, img_h // rows)
+        t_w = max(1, int(cell_w * scale))
+        t_h = max(1, int(cell_h * scale))
+
+        # Bild 1: Skaliertes Originalbild
+        lf1 = ttk.LabelFrame(parent, text="Originalbild")
+        lf1.pack(side="left", padx=4, anchor="n")
+        ph1 = ImageTk.PhotoImage(disp_img)
+        lbl1 = ttk.Label(lf1, image=ph1)
+        lbl1.image = ph1
+        lbl1.pack()
+        photo_list.append(ph1)
+
+        # Bild 2: Einzelbilder nebeneinander im Grid-Layout
+        lf2 = ttk.LabelFrame(parent, text=f"Einzelbilder ({grid_str})")
+        lf2.pack(side="left", padx=4, anchor="n")
+        for r in range(rows):
+            row_f = ttk.Frame(lf2)
+            row_f.pack(anchor="w")
+            for c in range(cols):
+                x0, y0 = c * cell_w, r * cell_h
+                tile = img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
+                tile_s = tile.resize((t_w, t_h), Image.LANCZOS)
+                ph = ImageTk.PhotoImage(tile_s)
+                lbl = ttk.Label(row_f, image=ph)
+                lbl.image = ph
+                lbl.pack(side="left")
+                photo_list.append(ph)
+
+        # Bild 3: Grid-Mosaik mit 3px Abstand zwischen den Kacheln
+        GAP = 3
+        mosaic_w = max(1, cols * t_w + (cols - 1) * GAP)
+        mosaic_h = max(1, rows * t_h + (rows - 1) * GAP)
+        mosaic = Image.new("RGB", (mosaic_w, mosaic_h), (200, 200, 200))
+        for r in range(rows):
+            for c in range(cols):
+                x0, y0 = c * cell_w, r * cell_h
+                tile = img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
+                tile_s = tile.resize((t_w, t_h), Image.LANCZOS)
+                mosaic.paste(tile_s, (c * (t_w + GAP), r * (t_h + GAP)))
+        lf3 = ttk.LabelFrame(parent, text=f"Grid mit Abstand ({grid_str})")
+        lf3.pack(side="left", padx=4, anchor="n")
+        ph3 = ImageTk.PhotoImage(mosaic)
+        lbl3 = ttk.Label(lf3, image=ph3)
+        lbl3.image = ph3
+        lbl3.pack()
+        photo_list.append(ph3)
+
+    def _populate_edit_images(self):
+        """Befüllt self.edit_img_container mit 3 Bildvorschauen (Original, Einzelbilder, Mosaik)."""
+        for w in self.edit_img_container.winfo_children():
+            w.destroy()
+        self._grid_photos = []
+
+        if not PIL_AVAILABLE:
+            return
+
+        typ_key = self.current_edit_type
+        grid_str = self.edit_imagegrid_var.get().strip()
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        img_path = None
+        for ext in (".png", ".jpg", ".jpeg", ".bmp"):
+            candidate = os.path.join(base_dir, typ_key + ext)
+            if os.path.isfile(candidate):
+                img_path = candidate
+                break
+        if img_path is None:
+            return
+
+        try:
+            img = Image.open(img_path)
+        except Exception:
+            return
+
+        img_lf = ttk.LabelFrame(self.edit_img_container, text="Typbild")
+        img_lf.pack(fill="x")
+        content = ttk.Frame(img_lf)
+        content.pack(fill="x", padx=4, pady=4)
+        self._build_three_images(content, img, grid_str, self._grid_photos)
+
+    def _populate_edit_cap_matrix(self, rows, cols, typ):
+        """Befüllt self.edit_cap_outer mit der CaptureImage-Matrix (rows × cols)."""
+        for w in self.edit_cap_outer.winfo_children():
+            w.destroy()
+        self.edit_capture_entries.clear()
+
+        grid_str = f"{rows}x{cols}"
+        cap_frame = ttk.LabelFrame(self.edit_cap_outer, text=f"CaptureImage  ({grid_str})")
+        cap_frame.pack(fill="x")
+
         header = ttk.Frame(cap_frame)
         header.pack(fill="x", padx=4, pady=2)
         ttk.Label(header, text="", width=10).pack(side="left")
@@ -256,80 +389,53 @@ class App(tk.Tk):
             for c in range(cols):
                 cell_frame = ttk.Frame(row_frame, relief="groove", borderwidth=1)
                 cell_frame.pack(side="left", padx=2, pady=1)
-                # Finde passende Position
                 p = self._find_capture(typ["Positions"], r, c)
                 pos_data = p["Position"] if p else {"X": 0, "Y": 0, "Z": 0}
                 vars_ = self._xyz_entries_compact(cell_frame, pos_data)
                 self.edit_capture_entries[(r, c)] = vars_
 
-        # --- Process ---
-        for pos in typ["Positions"]:
-            if pos["PathPosAction"] == "Process":
-                pr_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Process")
-                pr_frame.pack(fill="x", padx=8, pady=4)
-                row_f = ttk.Frame(pr_frame)
-                row_f.pack(fill="x", padx=4, pady=2)
-                self.edit_process_entry = self._xyz_entries(row_f, pos["Position"])
-
-    def _show_type_image(self, typ_key, grid_str):
-        """Zeigt das Typbild und die Grid-Teilbilder an, falls eine Bilddatei existiert."""
-        if not PIL_AVAILABLE:
-            return
-        # Referenzliste zurücksetzen (gegen Garbage Collection der alten PhotoImages)
-        self._grid_photos = []
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        img_path = None
-        for ext in (".png", ".jpg", ".jpeg", ".bmp"):
-            candidate = os.path.join(base_dir, typ_key + ext)
-            if os.path.isfile(candidate):
-                img_path = candidate
-                break
-        if img_path is None:
+    def _on_imagegrid_changed(self, _event=None):
+        """Wird aufgerufen wenn das ImageGrid-Feld geändert wird (FocusOut / Return)."""
+        grid_str = self.edit_imagegrid_var.get().strip()
+        try:
+            rows, cols = parse_grid(grid_str)
+            if rows <= 0 or cols <= 0:
+                raise ValueError("rows/cols müssen positiv sein")
+        except Exception:
+            messagebox.showwarning("Eingabe", "Ungültiges Grid-Format. Bitte z.B. '4x4' eingeben.")
             return
 
-        img = Image.open(img_path)
+        typ = self.data.get(self.current_edit_type)
+        if typ is None:
+            return
 
-        img_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Typbild")
-        img_frame.pack(fill="x", padx=8, pady=4)
+        self._populate_edit_images()
+        self._populate_edit_cap_matrix(rows, cols, typ)
 
-        # Originalbild und Grid-Teilbilder nebeneinander
-        content = ttk.Frame(img_frame)
-        content.pack(fill="x", padx=4, pady=4)
+    def _delete_type(self):
+        """Löscht den aktuell ausgewählten Typ nach Bestätigung."""
+        typ_key = self.edit_type_var.get()
+        if not typ_key:
+            messagebox.showwarning("Kein Typ", "Bitte zuerst einen Typ auswählen.")
+            return
+        if not messagebox.askyesno("Typ löschen", f"Typ {typ_key} wirklich löschen?"):
+            return
 
-        # --- Originalbild (links) ---
-        orig_frame = ttk.Frame(content)
-        orig_frame.pack(side="left", anchor="n", padx=(0, 20))
-        ttk.Label(orig_frame, text="Original", font=("", 9, "bold")).pack()
-        photo = ImageTk.PhotoImage(img)
-        lbl = ttk.Label(orig_frame, image=photo)
-        lbl.image = photo  # Referenz halten
-        lbl.pack()
+        del self.data[typ_key]
+        save_json(self.data)
 
-        # --- Grid-Teilbilder (rechts) ---
-        rows, cols = parse_grid(grid_str)
-        w, h = img.size
-        cell_w = w // cols
-        cell_h = h // rows
-        gap = 10
+        # Dropdown aktualisieren
+        self.edit_combo["values"] = sorted(self.data.keys())
+        self.edit_type_var.set("")
 
-        grid_frame = ttk.Frame(content)
-        grid_frame.pack(side="left", anchor="n")
-        ttk.Label(grid_frame, text=f"Grid ({grid_str})", font=("", 9, "bold")).pack(anchor="w")
+        # Bearbeitungsbereich leeren
+        for w in self.edit_scroll_frame.winfo_children():
+            w.destroy()
+        self.edit_diavite_entries.clear()
+        self.edit_capture_entries.clear()
+        self.current_edit_type = None
 
-        for r in range(rows):
-            row_f = ttk.Frame(grid_frame)
-            row_f.pack(anchor="w", pady=(gap if r > 0 else 0, 0))
-            for c in range(cols):
-                x0 = c * cell_w
-                y0 = r * cell_h
-                x1 = x0 + cell_w
-                y1 = y0 + cell_h
-                cell_img = img.crop((x0, y0, x1, y1))
-                cell_photo = ImageTk.PhotoImage(cell_img)
-                cell_lbl = ttk.Label(row_f, image=cell_photo)
-                cell_lbl.image = cell_photo
-                cell_lbl.pack(side="left", padx=(gap if c > 0 else 0, 0))
-                self._grid_photos.append(cell_photo)
+        messagebox.showinfo("Gelöscht", f"Typ {typ_key} wurde gelöscht.")
 
     def _save_edit(self):
         typ_key = self.edit_type_var.get()
@@ -363,17 +469,36 @@ class App(tk.Tk):
             except ValueError:
                 errors.append("PreStart: ungültige Zahlenwerte")
 
-        # CaptureImage
-        for (r, c), (xv, yv, zv) in self.edit_capture_entries.items():
-            try:
-                pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
-            except ValueError:
-                errors.append(f"CaptureImage Row {r} Col {c}: ungültige Zahlenwerte")
-                continue
-            errors.extend(validate_position(pos, "CaptureImage", self.limits))
-            p = self._find_capture(typ["Positions"], r, c)
-            if p:
-                p["Position"] = pos
+        # CaptureImage – rebuild from current edit entries (handles grid changes correctly)
+        grid_str = self.edit_imagegrid_var.get().strip()
+        try:
+            ec_rows, ec_cols = parse_grid(grid_str)
+            if ec_rows <= 0 or ec_cols <= 0:
+                raise ValueError("rows/cols müssen positiv sein")
+        except Exception:
+            errors.append("ImageGrid: Ungültiges Format (erwartet z.B. '4x4')")
+            ec_rows, ec_cols = 0, 0
+
+        cap_positions_new = []
+        for r in range(ec_rows):
+            # Serpentinen-Muster: gerade Zeilen links→rechts, ungerade rechts→links
+            col_range = range(ec_cols) if r % 2 == 0 else range(ec_cols - 1, -1, -1)
+            for c in col_range:
+                if (r, c) not in self.edit_capture_entries:
+                    continue
+                xv, yv, zv = self.edit_capture_entries[(r, c)]
+                try:
+                    pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+                except ValueError:
+                    errors.append(f"CaptureImage Row {r} Col {c}: ungültige Zahlenwerte")
+                    continue
+                errors.extend(validate_position(pos, "CaptureImage", self.limits))
+                cap_positions_new.append({
+                    "PathPosAction": "CaptureImage",
+                    "Position": pos,
+                    "CellRow": r,
+                    "CellColumn": c,
+                })
 
         # Process
         if self.edit_process_entry:
@@ -389,6 +514,22 @@ class App(tk.Tk):
         if errors:
             messagebox.showerror("Plausibilitätsprüfung fehlgeschlagen", "\n".join(errors))
             return
+
+        # ImageGrid aktualisieren
+        typ["ImageGrid"] = grid_str
+
+        # CaptureImage-Positionen neu aufbauen (in Serpentinen-Reihenfolge, nach PreStart)
+        non_cap = [p for p in typ["Positions"] if p["PathPosAction"] != "CaptureImage"]
+        new_positions = []
+        cap_inserted = False
+        for p in non_cap:
+            new_positions.append(p)
+            if p["PathPosAction"] == "PreStart" and not cap_inserted:
+                new_positions.extend(cap_positions_new)
+                cap_inserted = True
+        if not cap_inserted:
+            new_positions.extend(cap_positions_new)
+        typ["Positions"] = new_positions
 
         save_json(self.data)
         messagebox.showinfo("Gespeichert", f"Typ {typ_key} erfolgreich in Typdaten.json gespeichert.")
@@ -464,11 +605,12 @@ class App(tk.Tk):
         self._new_update_preview()
 
     def _new_update_preview(self):
-        """Sucht ein passendes Bild und zeigt Original + Grid-Overlay an."""
+        """Sucht ein passendes Bild und zeigt 3 Bildvorschauen an (Original, Einzelbilder, Grid-Mosaik)."""
         if not hasattr(self, "new_preview_frame") or not self.new_preview_frame.winfo_exists():
             return
         for w in self.new_preview_frame.winfo_children():
             w.destroy()
+        self._new_img_photos = []
 
         grid_str = self.new_grid_var.get().strip()
         if not grid_str:
@@ -485,7 +627,6 @@ class App(tk.Tk):
                       text="Pillow (PIL) nicht verfügbar – Bildvorschau nicht möglich.").pack(anchor="w")
             return
 
-        # Passendes Bild suchen (Dateiname ohne Erweiterung muss im Typnamen enthalten sein)
         tnr = self.new_typnr_var.get().strip()
         script_dir = os.path.dirname(os.path.abspath(__file__))
         img_path = None
@@ -503,42 +644,7 @@ class App(tk.Tk):
         except Exception:
             return
 
-        # Skalierung: max. 300 px Höhe
-        MAX_H = 300
-        img_w, img_h = original_img.size
-        scale = min(1.0, MAX_H / img_h)
-        disp_w = max(1, int(img_w * scale))
-        disp_h = max(1, int(img_h * scale))
-        disp_original = original_img.resize((disp_w, disp_h), Image.LANCZOS)
-
-        # Einzelbild-Größe aus Limits lesen
-        tile_w = int(self.limits.get("TileWidth", DEFAULT_TILE_WIDTH))
-        tile_h = int(self.limits.get("TileHeight", DEFAULT_TILE_HEIGHT))
-        t_w = max(1, int(tile_w * scale))
-        t_h = max(1, int(tile_h * scale))
-
-        # Grid-Overlay zeichnen
-        grid_img = disp_original.copy().convert("RGB")
-        draw = ImageDraw.Draw(grid_img)
-        for r in range(rows):
-            y0 = int(r * (disp_h - t_h) / (rows - 1)) if rows > 1 else 0
-            for c in range(cols):
-                x0 = int(c * (disp_w - t_w) / (cols - 1)) if cols > 1 else 0
-                draw.rectangle([x0, y0, x0 + t_w, y0 + t_h], outline="red", width=2)
-
-        left_lf = ttk.LabelFrame(self.new_preview_frame, text="Originalbild")
-        left_lf.pack(side="left", padx=4, anchor="n")
-        photo_orig = ImageTk.PhotoImage(disp_original)
-        lbl_orig = ttk.Label(left_lf, image=photo_orig)
-        lbl_orig.image = photo_orig
-        lbl_orig.pack()
-
-        right_lf = ttk.LabelFrame(self.new_preview_frame, text=f"Grid-Aufteilung ({grid_str})")
-        right_lf.pack(side="left", padx=4, anchor="n")
-        photo_grid = ImageTk.PhotoImage(grid_img)
-        lbl_grid = ttk.Label(right_lf, image=photo_grid)
-        lbl_grid.image = photo_grid
-        lbl_grid.pack()
+        self._build_three_images(self.new_preview_frame, original_img, grid_str, self._new_img_photos)
 
     def _new_goto_step2(self):
         """Schritt 2 → 3: ImageGrid validieren, dann Maße-Schritt anzeigen."""
