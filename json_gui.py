@@ -11,12 +11,6 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import ttk, messagebox
 
-try:
-    from PIL import Image, ImageTk
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-
 JSON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Typdaten.json")
 
 # ─── Standardlimits (werden über Tab "Einrichter" angepasst) ────────────────
@@ -35,8 +29,6 @@ GRID_ORIGIN_Y = 48.0                # Start-Y (erste Spalte)
 DEFAULT_GRID_WIDTH = 177.5394276316  # Standard-Breite (X-Span, gerundet)
 DEFAULT_GRID_HEIGHT = 162.0         # Standard-Höhe  (Y-Span)
 DEFAULT_CAPTURE_Z = 17.83           # Fest definierte Z-Höhe für CaptureImage
-DEFAULT_TILE_WIDTH = 120            # Standard-Einzelbild-Breite (px)
-DEFAULT_TILE_HEIGHT = 120           # Standard-Einzelbild-Höhe  (px)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -45,6 +37,38 @@ DEFAULT_TILE_HEIGHT = 120           # Standard-Einzelbild-Höhe  (px)
 def load_json():
     with open(JSON_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
+
+def _format_json(data):
+    """Formatiert die JSON-Daten so, dass jeder Positions-Eintrag auf einer Zeile steht.
+
+    Erzeugt Tab-basierte Einrückung auf drei Ebenen (Typ, Felder, Positions-Einträge).
+    Jeder Eintrag im Positions-Array wird als kompakte Zeile mit Leerzeichen
+    innerhalb der geschweiften Klammern ausgegeben, z.B.:
+        { "PathPosAction": "CaptureImage", "Position": { "X": 1.0, "Y": 2.0, "Z": 3.0 }, ... }
+    """
+    lines = []
+    lines.append("{")
+    type_keys = list(data.keys())
+    for ti, typ_key in enumerate(type_keys):
+        typ = data[typ_key]
+        lines.append(f'\t"{typ_key}": {{')
+        lines.append(f'\t\t"Description": {json.dumps(typ["Description"], ensure_ascii=False)},')
+        lines.append(f'\t\t"ImageGrid": {json.dumps(typ["ImageGrid"], ensure_ascii=False)},')
+        lines.append('\t\t"Positions": [')
+        positions = typ["Positions"]
+        for pi, pos in enumerate(positions):
+            entry = json.dumps(pos, ensure_ascii=False)
+            # Leerzeichen innerhalb der geschweiften Klammern einfügen
+            entry = entry.replace("{", "{ ").replace("}", " }")
+            comma = "," if pi < len(positions) - 1 else ""
+            lines.append(f"\t\t\t{entry}{comma}")
+        lines.append("\t\t]")
+        comma = "," if ti < len(type_keys) - 1 else ""
+        lines.append(f"\t}}{comma}")
+        if ti < len(type_keys) - 1:
+            lines.append("")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
 
 def save_json(data):
     if os.path.exists(JSON_FILE):
@@ -55,7 +79,7 @@ def save_json(data):
         )
         shutil.copy2(JSON_FILE, backup_path)
     with open(JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent="\t", ensure_ascii=False)
+        f.write(_format_json(data))
 
 def load_limits():
     if os.path.exists(LIMITS_FILE):
@@ -110,7 +134,12 @@ class App(tk.Tk):
         self.notebook.add(self.tab_new, text="Neuen Typ anlegen")
         self._build_new_tab()
 
-        # --- Tab 3: Einrichter (Limits) ---
+        # --- Tab 3: Neuer Typ (Eckpunkte) ---
+        self.tab_corners = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_corners, text="Neuer Typ (Eckpunkte)")
+        self._build_corners_tab()
+
+        # --- Tab 4: Einrichter (Limits) ---
         self.tab_limits = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_limits, text="Einrichter – Limits")
         self._build_limits_tab()
@@ -128,8 +157,6 @@ class App(tk.Tk):
                                        values=sorted(self.data.keys()), state="readonly", width=20)
         self.edit_combo.pack(side="left", padx=6)
         self.edit_combo.bind("<<ComboboxSelected>>", self._on_type_selected)
-
-        ttk.Button(top, text="Quit", command=self.destroy).pack(side="right")
 
         # Scrollbarer Bereich
         container = ttk.Frame(self.tab_edit)
@@ -175,9 +202,6 @@ class App(tk.Tk):
         info.pack(fill="x", padx=8, pady=4)
         ttk.Label(info, text=f"Description: {typ['Description']}    |    ImageGrid: {typ['ImageGrid']}").pack(
             anchor="w", padx=4, pady=2)
-
-        # --- Bild anzeigen (falls vorhanden) ---
-        self._show_type_image(typ_key, typ["ImageGrid"])
 
         # --- Diavite A & B ---
         diav_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Diavite Messungen")
@@ -233,66 +257,6 @@ class App(tk.Tk):
                 row_f = ttk.Frame(pr_frame)
                 row_f.pack(fill="x", padx=4, pady=2)
                 self.edit_process_entry = self._xyz_entries(row_f, pos["Position"])
-
-    def _show_type_image(self, typ_key, grid_str):
-        """Zeigt das Typbild und die Grid-Teilbilder an, falls eine Bilddatei existiert."""
-        if not PIL_AVAILABLE:
-            return
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        img_path = None
-        for ext in (".png", ".jpg", ".jpeg", ".bmp"):
-            candidate = os.path.join(base_dir, typ_key + ext)
-            if os.path.isfile(candidate):
-                img_path = candidate
-                break
-        if img_path is None:
-            return
-
-        img = Image.open(img_path)
-
-        img_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Typbild")
-        img_frame.pack(fill="x", padx=8, pady=4)
-
-        # Originalbild und Grid-Teilbilder nebeneinander
-        content = ttk.Frame(img_frame)
-        content.pack(fill="x", padx=4, pady=4)
-
-        # --- Originalbild (links) ---
-        orig_frame = ttk.Frame(content)
-        orig_frame.pack(side="left", anchor="n", padx=(0, 20))
-        ttk.Label(orig_frame, text="Original", font=("", 9, "bold")).pack()
-        photo = ImageTk.PhotoImage(img)
-        lbl = ttk.Label(orig_frame, image=photo)
-        lbl.image = photo  # Referenz halten
-        lbl.pack()
-
-        # --- Grid-Teilbilder (rechts) ---
-        rows, cols = parse_grid(grid_str)
-        w, h = img.size
-        cell_w = w // cols
-        cell_h = h // rows
-        gap = 10
-
-        grid_frame = ttk.Frame(content)
-        grid_frame.pack(side="left", anchor="n")
-        ttk.Label(grid_frame, text=f"Grid ({grid_str})", font=("", 9, "bold")).pack(anchor="w")
-
-        # Referenzliste für PhotoImages (gegen Garbage Collection)
-        self._grid_photos = []
-        for r in range(rows):
-            row_f = ttk.Frame(grid_frame)
-            row_f.pack(anchor="w", pady=(gap if r > 0 else 0, 0))
-            for c in range(cols):
-                x0 = c * cell_w
-                y0 = r * cell_h
-                x1 = x0 + cell_w
-                y1 = y0 + cell_h
-                cell_img = img.crop((x0, y0, x1, y1))
-                cell_photo = ImageTk.PhotoImage(cell_img)
-                cell_lbl = ttk.Label(row_f, image=cell_photo)
-                cell_lbl.image = cell_photo
-                cell_lbl.pack(side="left", padx=(gap if c > 0 else 0, 0))
-                self._grid_photos.append(cell_photo)
 
     def _save_edit(self):
         typ_key = self.edit_type_var.get()
@@ -360,7 +324,7 @@ class App(tk.Tk):
     #  TAB 2 – Neuen Typ anlegen
     # ───────────────────────────────────────────────────────────────────────
     def _build_new_tab(self):
-        self.new_step = 0  # 0=Typnummer, 1=ImageGrid+Vorschau, 2=Maße, 3=Positionen
+        self.new_step = 0  # 0=Typnummer, 1=Grid, 2=Positionen
 
         # Container für Wizard-Schritte
         self.new_wizard = ttk.Frame(self.tab_new)
@@ -375,10 +339,6 @@ class App(tk.Tk):
     def _new_show_step0(self):
         self._clear_wizard()
         self.new_step = 0
-        # Reset step-specific vars so they are recreated fresh on next run
-        for attr in ("new_grid_var", "new_width_var", "new_height_var", "new_preview_frame"):
-            if hasattr(self, attr):
-                delattr(self, attr)
         ttk.Label(self.new_wizard, text="Schritt 1: Typnummer eingeben", font=("", 12, "bold")).pack(anchor="w",
                                                                                                       pady=(0, 8))
         f = ttk.Frame(self.new_wizard)
@@ -396,131 +356,40 @@ class App(tk.Tk):
         if tnr in self.data:
             messagebox.showwarning("Duplikat", f"Typ {tnr} existiert bereits.")
             return
-        self._new_display_step1()
-
-    def _new_display_step1(self):
-        """Schritt 2: ImageGrid eingeben + Bildvorschau."""
         self._clear_wizard()
         self.new_step = 1
-        tnr = self.new_typnr_var.get().strip()
         ttk.Label(self.new_wizard, text=f"Schritt 2: ImageGrid für Typ {tnr}", font=("", 12, "bold")).pack(
             anchor="w", pady=(0, 8))
         f = ttk.Frame(self.new_wizard)
         f.pack(fill="x")
         ttk.Label(f, text="ImageGrid (z.B. 4x4):").pack(side="left")
-        if not hasattr(self, "new_grid_var"):
-            self.new_grid_var = tk.StringVar()
-            self.new_grid_var.trace_add("write", lambda *_a: self._new_update_preview())
+        self.new_grid_var = tk.StringVar()
         ttk.Entry(f, textvariable=self.new_grid_var, width=10).pack(side="left", padx=6)
+
+        f_origin = ttk.Frame(self.new_wizard)
+        f_origin.pack(fill="x", pady=(4, 0))
+        ttk.Label(f_origin, text="Ursprung X:").pack(side="left")
+        self.new_origin_x_var = tk.StringVar(value=str(GRID_ORIGIN_X))
+        ttk.Entry(f_origin, textvariable=self.new_origin_x_var, width=20).pack(side="left", padx=6)
+        ttk.Label(f_origin, text="Ursprung Y:").pack(side="left", padx=(8, 0))
+        self.new_origin_y_var = tk.StringVar(value=str(GRID_ORIGIN_Y))
+        ttk.Entry(f_origin, textvariable=self.new_origin_y_var, width=20).pack(side="left", padx=6)
 
         f2 = ttk.Frame(self.new_wizard)
         f2.pack(fill="x", pady=(4, 0))
-        ttk.Label(f2, text="Breite links:").pack(side="left")
-        self.new_width_left_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH / 2))
-        ttk.Entry(f2, textvariable=self.new_width_left_var, width=14).pack(side="left", padx=6)
-        ttk.Label(f2, text="Breite rechts:").pack(side="left", padx=(8, 0))
-        self.new_width_right_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH / 2))
-        ttk.Entry(f2, textvariable=self.new_width_right_var, width=14).pack(side="left", padx=6)
-
-        f3 = ttk.Frame(self.new_wizard)
-        f3.pack(fill="x", pady=(4, 0))
-        ttk.Label(f3, text="Höhe oben:").pack(side="left")
-        self.new_height_above_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT / 2))
-        ttk.Entry(f3, textvariable=self.new_height_above_var, width=14).pack(side="left", padx=6)
-        ttk.Label(f3, text="Höhe unten:").pack(side="left", padx=(8, 0))
-        self.new_height_below_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT / 2))
-        ttk.Entry(f3, textvariable=self.new_height_below_var, width=14).pack(side="left", padx=6)
+        ttk.Label(f2, text="Breite:").pack(side="left")
+        self.new_width_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH))
+        ttk.Entry(f2, textvariable=self.new_width_var, width=20).pack(side="left", padx=6)
+        ttk.Label(f2, text="Höhe:").pack(side="left", padx=(8, 0))
+        self.new_height_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT))
+        ttk.Entry(f2, textvariable=self.new_height_var, width=20).pack(side="left", padx=6)
 
         bf = ttk.Frame(self.new_wizard)
         bf.pack(fill="x", pady=10)
         ttk.Button(bf, text="⬅ Zurück", command=self._new_show_step0).pack(side="left")
         ttk.Button(bf, text="Weiter ➜", command=self._new_goto_step2).pack(side="right")
 
-        # Show preview if a value is already present (e.g. when navigating back)
-        self._new_update_preview()
-
-    def _new_update_preview(self):
-        """Sucht ein passendes Bild und zeigt Original + Grid-Overlay an."""
-        if not hasattr(self, "new_preview_frame") or not self.new_preview_frame.winfo_exists():
-            return
-        for w in self.new_preview_frame.winfo_children():
-            w.destroy()
-
-        grid_str = self.new_grid_var.get().strip()
-        if not grid_str:
-            return
-        try:
-            rows, cols = parse_grid(grid_str)
-            if rows <= 0 or cols <= 0:
-                return
-        except Exception:
-            return
-
-        if not PIL_AVAILABLE:
-            ttk.Label(self.new_preview_frame,
-                      text="Pillow (PIL) nicht verfügbar – Bildvorschau nicht möglich.").pack(anchor="w")
-            return
-
-        # Passendes Bild suchen (Dateiname ohne .png muss im Typnamen enthalten sein)
-        tnr = self.new_typnr_var.get().strip()
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        img_path = None
-        for fname in os.listdir(script_dir):
-            if fname.lower().endswith(".png"):
-                stem = os.path.splitext(fname)[0]
-                if stem in tnr:
-                    img_path = os.path.join(script_dir, fname)
-                    break
-        if img_path is None:
-            return
-
-        try:
-            original_img = Image.open(img_path)
-        except Exception:
-            return
-
-        # Skalierung: max. 300 px Höhe
-        MAX_H = 300
-        img_w, img_h = original_img.size
-        scale = min(1.0, MAX_H / img_h)
-        disp_w = max(1, int(img_w * scale))
-        disp_h = max(1, int(img_h * scale))
-        disp_original = original_img.resize((disp_w, disp_h), Image.LANCZOS)
-
-        # Einzelbild-Größe aus Limits lesen
-        tile_w = int(self.limits.get("TileWidth", DEFAULT_TILE_WIDTH))
-        tile_h = int(self.limits.get("TileHeight", DEFAULT_TILE_HEIGHT))
-        t_w = max(1, int(tile_w * scale))
-        t_h = max(1, int(tile_h * scale))
-
-        # Grid-Overlay zeichnen
-        # Startposition: start[i] = i * (total - tile) / (count - 1)  für count > 1, sonst 0.
-        # Negative Koordinaten (wenn Kachel größer als Bild) sind gewollt (Überlapp) –
-        # PIL schneidet Zeichnungen außerhalb des Bildes automatisch ab.
-        grid_img = disp_original.copy().convert("RGB")
-        draw = ImageDraw.Draw(grid_img)
-        for r in range(rows):
-            y0 = int(r * (disp_h - t_h) / (rows - 1)) if rows > 1 else 0
-            for c in range(cols):
-                x0 = int(c * (disp_w - t_w) / (cols - 1)) if cols > 1 else 0
-                draw.rectangle([x0, y0, x0 + t_w, y0 + t_h], outline="red", width=2)
-
-        left_lf = ttk.LabelFrame(self.new_preview_frame, text="Originalbild")
-        left_lf.pack(side="left", padx=4, anchor="n")
-        photo_orig = ImageTk.PhotoImage(disp_original)
-        lbl_orig = ttk.Label(left_lf, image=photo_orig)
-        lbl_orig.image = photo_orig
-        lbl_orig.pack()
-
-        right_lf = ttk.LabelFrame(self.new_preview_frame, text=f"Grid-Aufteilung ({grid_str})")
-        right_lf.pack(side="left", padx=4, anchor="n")
-        photo_grid = ImageTk.PhotoImage(grid_img)
-        lbl_grid = ttk.Label(right_lf, image=photo_grid)
-        lbl_grid.image = photo_grid
-        lbl_grid.pack()
-
     def _new_goto_step2(self):
-        """Schritt 2 → 3: ImageGrid validieren, dann Maße-Schritt anzeigen."""
         grid_str = self.new_grid_var.get().strip()
         try:
             rows, cols = parse_grid(grid_str)
@@ -528,56 +397,27 @@ class App(tk.Tk):
         except Exception:
             messagebox.showwarning("Eingabe", "Ungültiges Grid-Format. Bitte z.B. '4x4' eingeben.")
             return
-        self._new_display_step2()
-
-    def _new_display_step2(self):
-        """Schritt 3: Breite und Höhe eingeben."""
-        self._clear_wizard()
-        self.new_step = 2
-        tnr = self.new_typnr_var.get().strip()
-        ttk.Label(self.new_wizard, text=f"Schritt 3: Maße für Typ {tnr}", font=("", 12, "bold")).pack(
-            anchor="w", pady=(0, 8))
-
-        f2 = ttk.Frame(self.new_wizard)
-        f2.pack(fill="x", pady=(4, 0))
-        ttk.Label(f2, text="Breite:").pack(side="left")
-        if not hasattr(self, "new_width_var"):
-            self.new_width_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH))
-        ttk.Entry(f2, textvariable=self.new_width_var, width=20).pack(side="left", padx=6)
-        ttk.Label(f2, text="Höhe:").pack(side="left", padx=(8, 0))
-        if not hasattr(self, "new_height_var"):
-            self.new_height_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT))
-        ttk.Entry(f2, textvariable=self.new_height_var, width=20).pack(side="left", padx=6)
-
-        bf = ttk.Frame(self.new_wizard)
-        bf.pack(fill="x", pady=10)
-        ttk.Button(bf, text="⬅ Zurück", command=self._new_display_step1).pack(side="left")
-        ttk.Button(bf, text="Weiter ➜", command=self._new_goto_step3).pack(side="right")
-
-    def _new_goto_step3(self):
-        """Schritt 3 → 4: Breite/Höhe validieren, dann Positionen-Schritt anzeigen."""
-        grid_str = self.new_grid_var.get().strip()
-        rows, cols = parse_grid(grid_str)
 
         try:
-            width_left = float(self.new_width_left_var.get())
-            width_right = float(self.new_width_right_var.get())
-            height_above = float(self.new_height_above_var.get())
-            height_below = float(self.new_height_below_var.get())
-            assert width_left >= 0 and width_right >= 0
-            assert height_above >= 0 and height_below >= 0
-            width = width_left + width_right
-            height = height_above + height_below
+            width = float(self.new_width_var.get())
+            height = float(self.new_height_var.get())
             assert width > 0 and height > 0
         except Exception:
             messagebox.showwarning("Eingabe", "Breite und Höhe müssen positive Zahlen sein.")
             return
 
+        try:
+            origin_x = float(self.new_origin_x_var.get())
+            origin_y = float(self.new_origin_y_var.get())
+        except Exception:
+            messagebox.showwarning("Eingabe", "Ursprung X und Y müssen gültige Zahlen sein.")
+            return
+
         self._clear_wizard()
-        self.new_step = 3
+        self.new_step = 2
         tnr = self.new_typnr_var.get().strip()
 
-        ttk.Label(self.new_wizard, text=f"Schritt 4: Positionen für Typ {tnr} ({grid_str})",
+        ttk.Label(self.new_wizard, text=f"Schritt 3: Positionen für Typ {tnr} ({grid_str})",
                   font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
 
         # Scrollbar
@@ -628,7 +468,7 @@ class App(tk.Tk):
             for c in range(cols):
                 cell = ttk.Frame(row_frame, relief="groove", borderwidth=1)
                 cell.pack(side="left", padx=2, pady=1)
-                px, py, pz = self._get_initial_position(rows, cols, r, c, width, height)
+                px, py, pz = self._get_initial_position(rows, cols, r, c, width, height, origin_x, origin_y)
                 init_pos = {"X": round(px, 4), "Y": round(py, 4), "Z": round(pz, 4)}
                 self.new_capture_entries[(r, c)] = self._xyz_entries_compact(cell, init_pos)
 
@@ -642,7 +482,7 @@ class App(tk.Tk):
         # Buttons
         bf = ttk.Frame(self.new_wizard)
         bf.pack(fill="x", pady=6)
-        ttk.Button(bf, text="⬅ Zurück", command=self._new_display_step2).pack(side="left")
+        ttk.Button(bf, text="⬅ Zurück", command=self._new_goto_step1).pack(side="left")
         ttk.Button(bf, text="💾  Neuen Typ speichern", command=lambda: self._save_new(rows, cols, grid_str)).pack(
             side="right")
 
@@ -712,7 +552,250 @@ class App(tk.Tk):
         self._new_show_step0()
 
     # ───────────────────────────────────────────────────────────────────────
-    #  TAB 3 – Einrichter (Limits)
+    #  TAB 3 – Neuer Typ (Eckpunkte)
+    # ───────────────────────────────────────────────────────────────────────
+    def _build_corners_tab(self):
+        self.corners_step = 0
+
+        self.corners_wizard = ttk.Frame(self.tab_corners)
+        self.corners_wizard.pack(fill="both", expand=True, padx=8, pady=6)
+
+        self._corners_show_step0()
+
+    def _clear_corners_wizard(self):
+        for w in self.corners_wizard.winfo_children():
+            w.destroy()
+
+    def _corners_show_step0(self):
+        self._clear_corners_wizard()
+        self.corners_step = 0
+        ttk.Label(self.corners_wizard, text="Schritt 1: Typnummer eingeben", font=("", 12, "bold")).pack(
+            anchor="w", pady=(0, 8))
+        f = ttk.Frame(self.corners_wizard)
+        f.pack(fill="x")
+        ttk.Label(f, text="Typnummer:").pack(side="left")
+        self.corners_typnr_var = tk.StringVar()
+        ttk.Entry(f, textvariable=self.corners_typnr_var, width=20).pack(side="left", padx=6)
+        ttk.Button(self.corners_wizard, text="Weiter ➜", command=self._corners_goto_step1).pack(anchor="e", pady=10)
+
+    def _corners_goto_step1(self):
+        tnr = self.corners_typnr_var.get().strip()
+        if not tnr:
+            messagebox.showwarning("Eingabe", "Bitte Typnummer eingeben.")
+            return
+        if tnr in self.data:
+            messagebox.showwarning("Duplikat", f"Typ {tnr} existiert bereits.")
+            return
+        self._clear_corners_wizard()
+        self.corners_step = 1
+        ttk.Label(self.corners_wizard, text=f"Schritt 2: Grid & Eckpunkte für Typ {tnr}",
+                  font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
+
+        f_grid = ttk.Frame(self.corners_wizard)
+        f_grid.pack(fill="x")
+        ttk.Label(f_grid, text="ImageGrid (z.B. 4x4):").pack(side="left")
+        self.corners_grid_var = tk.StringVar()
+        ttk.Entry(f_grid, textvariable=self.corners_grid_var, width=10).pack(side="left", padx=6)
+
+        # Position oben links (Row 0, Col 0)
+        tl_frame = ttk.LabelFrame(self.corners_wizard, text="Position oben links (Row 0, Col 0)")
+        tl_frame.pack(fill="x", pady=(8, 4))
+        tl_inner = ttk.Frame(tl_frame)
+        tl_inner.pack(fill="x", padx=4, pady=4)
+        self.corners_tl_vars = self._xyz_entries(tl_inner, {"X": 0, "Y": 0, "Z": DEFAULT_CAPTURE_Z})
+
+        # Position unten rechts (Row max, Col max)
+        br_frame = ttk.LabelFrame(self.corners_wizard, text="Position unten rechts (Row max, Col max)")
+        br_frame.pack(fill="x", pady=4)
+        br_inner = ttk.Frame(br_frame)
+        br_inner.pack(fill="x", padx=4, pady=4)
+        self.corners_br_vars = self._xyz_entries(br_inner, {"X": 0, "Y": 0, "Z": DEFAULT_CAPTURE_Z})
+
+        bf = ttk.Frame(self.corners_wizard)
+        bf.pack(fill="x", pady=10)
+        ttk.Button(bf, text="⬅ Zurück", command=self._corners_show_step0).pack(side="left")
+        ttk.Button(bf, text="Weiter ➜", command=self._corners_goto_step2).pack(side="right")
+
+    def _corners_goto_step2(self):
+        grid_str = self.corners_grid_var.get().strip()
+        try:
+            rows, cols = parse_grid(grid_str)
+            assert rows > 0 and cols > 0
+        except Exception:
+            messagebox.showwarning("Eingabe", "Ungültiges Grid-Format. Bitte z.B. '4x4' eingeben.")
+            return
+
+        try:
+            tl_x = float(self.corners_tl_vars[0].get())
+            tl_y = float(self.corners_tl_vars[1].get())
+            tl_z = float(self.corners_tl_vars[2].get())
+            br_x = float(self.corners_br_vars[0].get())
+            br_y = float(self.corners_br_vars[1].get())
+            br_z = float(self.corners_br_vars[2].get())
+        except ValueError:
+            messagebox.showwarning("Eingabe", "Bitte gültige Zahlenwerte für die Eckpunkte eingeben.")
+            return
+
+        self._clear_corners_wizard()
+        self.corners_step = 2
+        tnr = self.corners_typnr_var.get().strip()
+
+        ttk.Label(self.corners_wizard, text=f"Schritt 3: Positionen für Typ {tnr} ({grid_str})",
+                  font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
+
+        # Scrollbar
+        container = ttk.Frame(self.corners_wizard)
+        container.pack(fill="both", expand=True)
+        canvas = tk.Canvas(container)
+        sb = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+
+        # Diavite
+        diav_frame = ttk.LabelFrame(scroll_frame, text="Diavite Messungen")
+        diav_frame.pack(fill="x", padx=4, pady=4)
+        self.corners_diavite = []
+        for label in ("Diavite A", "Diavite B"):
+            rf = ttk.Frame(diav_frame)
+            rf.pack(fill="x", padx=4, pady=2)
+            ttk.Label(rf, text=label, width=14).pack(side="left")
+            self.corners_diavite.append(self._xyz_entries(rf, {"X": 0, "Y": 0, "Z": 0}))
+
+        # PreStart
+        ps_frame = ttk.LabelFrame(scroll_frame, text="PreStart")
+        ps_frame.pack(fill="x", padx=4, pady=4)
+        rf = ttk.Frame(ps_frame)
+        rf.pack(fill="x", padx=4, pady=2)
+        self.corners_prestart = self._xyz_entries(rf, {"X": 0, "Y": 0, "Z": 0})
+
+        # CaptureImage Matrix – berechnet aus den Eckpunkten
+        cap_frame = ttk.LabelFrame(scroll_frame, text=f"CaptureImage  ({grid_str})")
+        cap_frame.pack(fill="x", padx=4, pady=4)
+
+        header = ttk.Frame(cap_frame)
+        header.pack(fill="x", padx=4, pady=2)
+        ttk.Label(header, text="", width=10).pack(side="left")
+        for c in range(cols):
+            ttk.Label(header, text=f"Col {c}", width=28, anchor="center").pack(side="left", padx=2)
+
+        self.corners_capture_entries = {}
+        for r in range(rows):
+            row_frame = ttk.Frame(cap_frame)
+            row_frame.pack(fill="x", padx=4, pady=1)
+            ttk.Label(row_frame, text=f"Row {r}", width=10).pack(side="left")
+            for c in range(cols):
+                cell = ttk.Frame(row_frame, relief="groove", borderwidth=1)
+                cell.pack(side="left", padx=2, pady=1)
+                px, py, pz = self._calc_corner_position(
+                    rows, cols, r, c, tl_x, tl_y, tl_z, br_x, br_y, br_z)
+                init_pos = {"X": round(px, 4), "Y": round(py, 4), "Z": round(pz, 4)}
+                self.corners_capture_entries[(r, c)] = self._xyz_entries_compact(cell, init_pos)
+
+        # Process
+        pr_frame = ttk.LabelFrame(scroll_frame, text="Process")
+        pr_frame.pack(fill="x", padx=4, pady=4)
+        rf2 = ttk.Frame(pr_frame)
+        rf2.pack(fill="x", padx=4, pady=2)
+        self.corners_process = self._xyz_entries(rf2, {"X": 0, "Y": 0, "Z": 0})
+
+        # Buttons
+        bf = ttk.Frame(self.corners_wizard)
+        bf.pack(fill="x", pady=6)
+        ttk.Button(bf, text="⬅ Zurück", command=self._corners_goto_step1).pack(side="left")
+        ttk.Button(bf, text="💾  Neuen Typ speichern",
+                   command=lambda: self._save_corners(rows, cols, grid_str)).pack(side="right")
+
+    @staticmethod
+    def _calc_corner_position(rows, cols, row, col, tl_x, tl_y, tl_z, br_x, br_y, br_z):
+        """Berechnet die Position einer Grid-Zelle aus den beiden Eckpunkten (oben links / unten rechts).
+
+        Args:
+            rows, cols: Grid-Dimensionen.
+            row, col: Aktuelle Zelle (0-basiert, logische Position).
+            tl_x, tl_y, tl_z: Position oben links (Row 0, Col 0).
+            br_x, br_y, br_z: Position unten rechts (Row max, Col max).
+
+        Returns:
+            (posX, posY, posZ) als Tuple von float.
+        """
+        pos_x = tl_x + (br_x - tl_x) / (rows - 1) * row if rows > 1 else tl_x
+        pos_y = tl_y + (br_y - tl_y) / (cols - 1) * col if cols > 1 else tl_y
+        pos_z = tl_z + (br_z - tl_z) / (rows - 1) * row if rows > 1 else tl_z
+
+        return pos_x, pos_y, pos_z
+
+    def _save_corners(self, rows, cols, grid_str):
+        tnr = self.corners_typnr_var.get().strip()
+        errors = []
+        positions = []
+
+        # Diavite
+        actions = ["DiaviteMeasurementA", "DiaviteMeasurementB"]
+        for i, (xv, yv, zv) in enumerate(self.corners_diavite):
+            try:
+                pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+            except ValueError:
+                errors.append(f"{actions[i]}: ungültige Zahlenwerte")
+                continue
+            errors.extend(validate_position(pos, "Diavite", self.limits))
+            positions.append({"PathPosAction": actions[i], "Position": pos, "CellRow": -1, "CellColumn": -1})
+
+        # PreStart
+        xv, yv, zv = self.corners_prestart
+        try:
+            pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+            positions.append({"PathPosAction": "PreStart", "Position": pos, "CellRow": -1, "CellColumn": -1})
+        except ValueError:
+            errors.append("PreStart: ungültige Zahlenwerte")
+
+        # CaptureImage – Serpentinenmuster
+        for r in range(rows):
+            if r % 2 == 0:
+                col_range = range(cols)
+            else:
+                col_range = range(cols - 1, -1, -1)
+            for c in col_range:
+                xv, yv, zv = self.corners_capture_entries[(r, c)]
+                try:
+                    pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+                except ValueError:
+                    errors.append(f"CaptureImage Row {r} Col {c}: ungültige Zahlenwerte")
+                    continue
+                errors.extend(validate_position(pos, "CaptureImage", self.limits))
+                positions.append({"PathPosAction": "CaptureImage", "Position": pos, "CellRow": r, "CellColumn": c})
+
+        # Process
+        xv, yv, zv = self.corners_process
+        try:
+            pos = {"X": float(xv.get()), "Y": float(yv.get()), "Z": float(zv.get())}
+            positions.append({"PathPosAction": "Process", "Position": pos, "CellRow": -1, "CellColumn": -1})
+        except ValueError:
+            errors.append("Process: ungültige Zahlenwerte")
+
+        if errors:
+            messagebox.showerror("Plausibilitätsprüfung fehlgeschlagen", "\n".join(errors))
+            return
+
+        self.data[tnr] = {
+            "Description": "Python Script Generated",
+            "ImageGrid": grid_str,
+            "Positions": positions,
+        }
+        save_json(self.data)
+
+        # Dropdown in Tab 1 aktualisieren
+        self.edit_combo["values"] = sorted(self.data.keys())
+
+        messagebox.showinfo("Gespeichert", f"Neuer Typ {tnr} erfolgreich gespeichert.")
+        self._corners_show_step0()
+
+    # ───────────────────────────────────────────────────────────────────────
+    #  TAB 4 – Einrichter (Limits)
     # ───────────────────────────────────────────────────────────────────────
     def _build_limits_tab(self):
         ttk.Label(self.tab_limits, text="Min / Max Limits für Plausibilitätsprüfung",
@@ -735,18 +818,6 @@ class App(tk.Tk):
                 ttk.Entry(rf, textvariable=max_var, width=10).pack(side="left", padx=2)
                 self.limit_entries[category][axis] = (min_var, max_var)
 
-        # Einzelbild-Größe für Grid-Vorschau
-        tile_lf = ttk.LabelFrame(self.tab_limits, text="Einzelbild-Größe (für Grid-Vorschau)")
-        tile_lf.pack(fill="x", padx=8, pady=6)
-        rf_tile = ttk.Frame(tile_lf)
-        rf_tile.pack(fill="x", padx=4, pady=4)
-        ttk.Label(rf_tile, text="Einzelbild-Breite (px):").pack(side="left")
-        self.tile_width_var = tk.StringVar(value=str(self.limits.get("TileWidth", DEFAULT_TILE_WIDTH)))
-        ttk.Entry(rf_tile, textvariable=self.tile_width_var, width=10).pack(side="left", padx=6)
-        ttk.Label(rf_tile, text="Einzelbild-Höhe (px):").pack(side="left", padx=(16, 0))
-        self.tile_height_var = tk.StringVar(value=str(self.limits.get("TileHeight", DEFAULT_TILE_HEIGHT)))
-        ttk.Entry(rf_tile, textvariable=self.tile_height_var, width=10).pack(side="left", padx=6)
-
         ttk.Button(self.tab_limits, text="💾  Limits speichern", command=self._save_limits).pack(anchor="e", padx=8,
                                                                                                   pady=10)
 
@@ -765,16 +836,6 @@ class App(tk.Tk):
                 except ValueError:
                     messagebox.showerror("Fehler", f"{category} {axis}: ungültige Zahlenwerte")
                     return
-        try:
-            tw = int(float(self.tile_width_var.get()))
-            th = int(float(self.tile_height_var.get()))
-            if tw <= 0 or th <= 0:
-                raise ValueError
-            new_limits["TileWidth"] = tw
-            new_limits["TileHeight"] = th
-        except ValueError:
-            messagebox.showerror("Fehler", "Einzelbild-Breite/-Höhe: ungültige Zahlenwerte (müssen > 0 sein)")
-            return
         self.limits = new_limits
         save_limits(new_limits)
         messagebox.showinfo("Gespeichert", "Limits erfolgreich gespeichert.")
@@ -783,7 +844,7 @@ class App(tk.Tk):
     #  Widgets-Helfer
     # ───────────────────────────────────────────────────────────────────────
     @staticmethod
-    def _get_initial_position(rows, cols, row, col, width, height):
+    def _get_initial_position(rows, cols, row, col, width, height, origin_x=None, origin_y=None):
         """Berechnet die initiale X/Y/Z Position für eine Grid-Zelle.
 
         Koordinatensystem:
@@ -800,14 +861,21 @@ class App(tk.Tk):
             col:  Aktuelle Spalte (0-basiert, logische Position in der Matrix).
             width: Breite = X-Span (Zeilen-Richtung).
             height: Höhe = Y-Span (Spalten-Richtung).
+            origin_x: Ursprung X (Standard: GRID_ORIGIN_X).
+            origin_y: Ursprung Y (Standard: GRID_ORIGIN_Y).
 
         Returns:
             (posX, posY, posZ) als Tuple von float.
         """
+        if origin_x is None:
+            origin_x = GRID_ORIGIN_X
+        if origin_y is None:
+            origin_y = GRID_ORIGIN_Y
+
         effective_col = col if row % 2 == 0 else cols - col - 1
 
-        min_bounds = (GRID_ORIGIN_X, GRID_ORIGIN_Y)
-        max_bounds = (GRID_ORIGIN_X + width, GRID_ORIGIN_Y + height)
+        min_bounds = (origin_x, origin_y)
+        max_bounds = (origin_x + width, origin_y + height)
 
         span_x = max_bounds[0] - min_bounds[0]
         span_y = max_bounds[1] - min_bounds[1]
