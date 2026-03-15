@@ -11,6 +11,12 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import ttk, messagebox
 
+try:
+    from PIL import Image, ImageDraw, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 JSON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Typdaten.json")
 
 # ─── Standardlimits (werden über Tab "Einrichter" angepasst) ────────────────
@@ -29,6 +35,8 @@ GRID_ORIGIN_Y = 48.0                # Start-Y (erste Spalte)
 DEFAULT_GRID_WIDTH = 177.5394276316  # Standard-Breite (X-Span, gerundet)
 DEFAULT_GRID_HEIGHT = 162.0         # Standard-Höhe  (Y-Span)
 DEFAULT_CAPTURE_Z = 17.83           # Fest definierte Z-Höhe für CaptureImage
+DEFAULT_TILE_WIDTH = 120            # Standard-Einzelbild-Breite (px)
+DEFAULT_TILE_HEIGHT = 120           # Standard-Einzelbild-Höhe  (px)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -158,6 +166,8 @@ class App(tk.Tk):
         self.edit_combo.pack(side="left", padx=6)
         self.edit_combo.bind("<<ComboboxSelected>>", self._on_type_selected)
 
+        ttk.Button(top, text="Quit", command=self.destroy).pack(side="right")
+
         # Scrollbarer Bereich
         container = ttk.Frame(self.tab_edit)
         container.pack(fill="both", expand=True)
@@ -202,6 +212,9 @@ class App(tk.Tk):
         info.pack(fill="x", padx=8, pady=4)
         ttk.Label(info, text=f"Description: {typ['Description']}    |    ImageGrid: {typ['ImageGrid']}").pack(
             anchor="w", padx=4, pady=2)
+
+        # --- Bild anzeigen (falls vorhanden) ---
+        self._show_type_image(typ_key, typ["ImageGrid"])
 
         # --- Diavite A & B ---
         diav_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Diavite Messungen")
@@ -257,6 +270,66 @@ class App(tk.Tk):
                 row_f = ttk.Frame(pr_frame)
                 row_f.pack(fill="x", padx=4, pady=2)
                 self.edit_process_entry = self._xyz_entries(row_f, pos["Position"])
+
+    def _show_type_image(self, typ_key, grid_str):
+        """Zeigt das Typbild und die Grid-Teilbilder an, falls eine Bilddatei existiert."""
+        if not PIL_AVAILABLE:
+            return
+        # Referenzliste zurücksetzen (gegen Garbage Collection der alten PhotoImages)
+        self._grid_photos = []
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        img_path = None
+        for ext in (".png", ".jpg", ".jpeg", ".bmp"):
+            candidate = os.path.join(base_dir, typ_key + ext)
+            if os.path.isfile(candidate):
+                img_path = candidate
+                break
+        if img_path is None:
+            return
+
+        img = Image.open(img_path)
+
+        img_frame = ttk.LabelFrame(self.edit_scroll_frame, text="Typbild")
+        img_frame.pack(fill="x", padx=8, pady=4)
+
+        # Originalbild und Grid-Teilbilder nebeneinander
+        content = ttk.Frame(img_frame)
+        content.pack(fill="x", padx=4, pady=4)
+
+        # --- Originalbild (links) ---
+        orig_frame = ttk.Frame(content)
+        orig_frame.pack(side="left", anchor="n", padx=(0, 20))
+        ttk.Label(orig_frame, text="Original", font=("", 9, "bold")).pack()
+        photo = ImageTk.PhotoImage(img)
+        lbl = ttk.Label(orig_frame, image=photo)
+        lbl.image = photo  # Referenz halten
+        lbl.pack()
+
+        # --- Grid-Teilbilder (rechts) ---
+        rows, cols = parse_grid(grid_str)
+        w, h = img.size
+        cell_w = w // cols
+        cell_h = h // rows
+        gap = 10
+
+        grid_frame = ttk.Frame(content)
+        grid_frame.pack(side="left", anchor="n")
+        ttk.Label(grid_frame, text=f"Grid ({grid_str})", font=("", 9, "bold")).pack(anchor="w")
+
+        for r in range(rows):
+            row_f = ttk.Frame(grid_frame)
+            row_f.pack(anchor="w", pady=(gap if r > 0 else 0, 0))
+            for c in range(cols):
+                x0 = c * cell_w
+                y0 = r * cell_h
+                x1 = x0 + cell_w
+                y1 = y0 + cell_h
+                cell_img = img.crop((x0, y0, x1, y1))
+                cell_photo = ImageTk.PhotoImage(cell_img)
+                cell_lbl = ttk.Label(row_f, image=cell_photo)
+                cell_lbl.image = cell_photo
+                cell_lbl.pack(side="left", padx=(gap if c > 0 else 0, 0))
+                self._grid_photos.append(cell_photo)
 
     def _save_edit(self):
         typ_key = self.edit_type_var.get()
@@ -324,7 +397,7 @@ class App(tk.Tk):
     #  TAB 2 – Neuen Typ anlegen
     # ───────────────────────────────────────────────────────────────────────
     def _build_new_tab(self):
-        self.new_step = 0  # 0=Typnummer, 1=Grid, 2=Positionen
+        self.new_step = 0  # 0=Typnummer, 1=ImageGrid+Vorschau, 2=Maße, 3=Positionen
 
         # Container für Wizard-Schritte
         self.new_wizard = ttk.Frame(self.tab_new)
@@ -339,6 +412,11 @@ class App(tk.Tk):
     def _new_show_step0(self):
         self._clear_wizard()
         self.new_step = 0
+        # Reset step-specific vars so they are recreated fresh on next run
+        for attr in ("new_grid_var", "new_width_var", "new_height_var",
+                     "new_origin_x_var", "new_origin_y_var", "new_preview_frame"):
+            if hasattr(self, attr):
+                delattr(self, attr)
         ttk.Label(self.new_wizard, text="Schritt 1: Typnummer eingeben", font=("", 12, "bold")).pack(anchor="w",
                                                                                                       pady=(0, 8))
         f = ttk.Frame(self.new_wizard)
@@ -356,40 +434,114 @@ class App(tk.Tk):
         if tnr in self.data:
             messagebox.showwarning("Duplikat", f"Typ {tnr} existiert bereits.")
             return
+        self._new_display_step1()
+
+    def _new_display_step1(self):
+        """Schritt 2: ImageGrid eingeben + Bildvorschau."""
         self._clear_wizard()
         self.new_step = 1
-        ttk.Label(self.new_wizard, text=f"Schritt 2: ImageGrid für Typ {tnr}", font=("", 12, "bold")).pack(
-            anchor="w", pady=(0, 8))
+        tnr = self.new_typnr_var.get().strip()
+        ttk.Label(self.new_wizard, text=f"Schritt 2: ImageGrid für Typ {tnr}",
+                  font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
         f = ttk.Frame(self.new_wizard)
         f.pack(fill="x")
         ttk.Label(f, text="ImageGrid (z.B. 4x4):").pack(side="left")
-        self.new_grid_var = tk.StringVar()
+        if not hasattr(self, "new_grid_var"):
+            self.new_grid_var = tk.StringVar()
+            self.new_grid_var.trace_add("write", lambda *_a: self._new_update_preview())
         ttk.Entry(f, textvariable=self.new_grid_var, width=10).pack(side="left", padx=6)
 
-        f_origin = ttk.Frame(self.new_wizard)
-        f_origin.pack(fill="x", pady=(4, 0))
-        ttk.Label(f_origin, text="Ursprung X:").pack(side="left")
-        self.new_origin_x_var = tk.StringVar(value=str(GRID_ORIGIN_X))
-        ttk.Entry(f_origin, textvariable=self.new_origin_x_var, width=20).pack(side="left", padx=6)
-        ttk.Label(f_origin, text="Ursprung Y:").pack(side="left", padx=(8, 0))
-        self.new_origin_y_var = tk.StringVar(value=str(GRID_ORIGIN_Y))
-        ttk.Entry(f_origin, textvariable=self.new_origin_y_var, width=20).pack(side="left", padx=6)
-
-        f2 = ttk.Frame(self.new_wizard)
-        f2.pack(fill="x", pady=(4, 0))
-        ttk.Label(f2, text="Breite:").pack(side="left")
-        self.new_width_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH))
-        ttk.Entry(f2, textvariable=self.new_width_var, width=20).pack(side="left", padx=6)
-        ttk.Label(f2, text="Höhe:").pack(side="left", padx=(8, 0))
-        self.new_height_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT))
-        ttk.Entry(f2, textvariable=self.new_height_var, width=20).pack(side="left", padx=6)
+        # Preview-Frame (wird von _new_update_preview befüllt)
+        self.new_preview_frame = ttk.Frame(self.new_wizard)
+        self.new_preview_frame.pack(fill="x", pady=(8, 0))
 
         bf = ttk.Frame(self.new_wizard)
         bf.pack(fill="x", pady=10)
         ttk.Button(bf, text="⬅ Zurück", command=self._new_show_step0).pack(side="left")
         ttk.Button(bf, text="Weiter ➜", command=self._new_goto_step2).pack(side="right")
 
+        # Vorschau anzeigen falls bereits ein Wert vorhanden (z.B. beim Zurücknavigieren)
+        self._new_update_preview()
+
+    def _new_update_preview(self):
+        """Sucht ein passendes Bild und zeigt Original + Grid-Overlay an."""
+        if not hasattr(self, "new_preview_frame") or not self.new_preview_frame.winfo_exists():
+            return
+        for w in self.new_preview_frame.winfo_children():
+            w.destroy()
+
+        grid_str = self.new_grid_var.get().strip()
+        if not grid_str:
+            return
+        try:
+            rows, cols = parse_grid(grid_str)
+            if rows <= 0 or cols <= 0:
+                return
+        except Exception:
+            return
+
+        if not PIL_AVAILABLE:
+            ttk.Label(self.new_preview_frame,
+                      text="Pillow (PIL) nicht verfügbar – Bildvorschau nicht möglich.").pack(anchor="w")
+            return
+
+        # Passendes Bild suchen (Dateiname ohne Erweiterung muss im Typnamen enthalten sein)
+        tnr = self.new_typnr_var.get().strip()
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        img_path = None
+        for fname in os.listdir(script_dir):
+            if fname.lower().endswith(".png"):
+                stem = os.path.splitext(fname)[0]
+                if stem in tnr:
+                    img_path = os.path.join(script_dir, fname)
+                    break
+        if img_path is None:
+            return
+
+        try:
+            original_img = Image.open(img_path)
+        except Exception:
+            return
+
+        # Skalierung: max. 300 px Höhe
+        MAX_H = 300
+        img_w, img_h = original_img.size
+        scale = min(1.0, MAX_H / img_h)
+        disp_w = max(1, int(img_w * scale))
+        disp_h = max(1, int(img_h * scale))
+        disp_original = original_img.resize((disp_w, disp_h), Image.LANCZOS)
+
+        # Einzelbild-Größe aus Limits lesen
+        tile_w = int(self.limits.get("TileWidth", DEFAULT_TILE_WIDTH))
+        tile_h = int(self.limits.get("TileHeight", DEFAULT_TILE_HEIGHT))
+        t_w = max(1, int(tile_w * scale))
+        t_h = max(1, int(tile_h * scale))
+
+        # Grid-Overlay zeichnen
+        grid_img = disp_original.copy().convert("RGB")
+        draw = ImageDraw.Draw(grid_img)
+        for r in range(rows):
+            y0 = int(r * (disp_h - t_h) / (rows - 1)) if rows > 1 else 0
+            for c in range(cols):
+                x0 = int(c * (disp_w - t_w) / (cols - 1)) if cols > 1 else 0
+                draw.rectangle([x0, y0, x0 + t_w, y0 + t_h], outline="red", width=2)
+
+        left_lf = ttk.LabelFrame(self.new_preview_frame, text="Originalbild")
+        left_lf.pack(side="left", padx=4, anchor="n")
+        photo_orig = ImageTk.PhotoImage(disp_original)
+        lbl_orig = ttk.Label(left_lf, image=photo_orig)
+        lbl_orig.image = photo_orig
+        lbl_orig.pack()
+
+        right_lf = ttk.LabelFrame(self.new_preview_frame, text=f"Grid-Aufteilung ({grid_str})")
+        right_lf.pack(side="left", padx=4, anchor="n")
+        photo_grid = ImageTk.PhotoImage(grid_img)
+        lbl_grid = ttk.Label(right_lf, image=photo_grid)
+        lbl_grid.image = photo_grid
+        lbl_grid.pack()
+
     def _new_goto_step2(self):
+        """Schritt 2 → 3: ImageGrid validieren, dann Maße-Schritt anzeigen."""
         grid_str = self.new_grid_var.get().strip()
         try:
             rows, cols = parse_grid(grid_str)
@@ -397,6 +549,47 @@ class App(tk.Tk):
         except Exception:
             messagebox.showwarning("Eingabe", "Ungültiges Grid-Format. Bitte z.B. '4x4' eingeben.")
             return
+        self._new_display_step2()
+
+    def _new_display_step2(self):
+        """Schritt 3: Ursprung X/Y, Breite und Höhe eingeben."""
+        self._clear_wizard()
+        self.new_step = 2
+        tnr = self.new_typnr_var.get().strip()
+        ttk.Label(self.new_wizard, text=f"Schritt 3: Maße für Typ {tnr}",
+                  font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
+
+        f_origin = ttk.Frame(self.new_wizard)
+        f_origin.pack(fill="x", pady=(4, 0))
+        ttk.Label(f_origin, text="Ursprung X:").pack(side="left")
+        if not hasattr(self, "new_origin_x_var"):
+            self.new_origin_x_var = tk.StringVar(value=str(GRID_ORIGIN_X))
+        ttk.Entry(f_origin, textvariable=self.new_origin_x_var, width=20).pack(side="left", padx=6)
+        ttk.Label(f_origin, text="Ursprung Y:").pack(side="left", padx=(8, 0))
+        if not hasattr(self, "new_origin_y_var"):
+            self.new_origin_y_var = tk.StringVar(value=str(GRID_ORIGIN_Y))
+        ttk.Entry(f_origin, textvariable=self.new_origin_y_var, width=20).pack(side="left", padx=6)
+
+        f2 = ttk.Frame(self.new_wizard)
+        f2.pack(fill="x", pady=(4, 0))
+        ttk.Label(f2, text="Breite:").pack(side="left")
+        if not hasattr(self, "new_width_var"):
+            self.new_width_var = tk.StringVar(value=str(DEFAULT_GRID_WIDTH))
+        ttk.Entry(f2, textvariable=self.new_width_var, width=20).pack(side="left", padx=6)
+        ttk.Label(f2, text="Höhe:").pack(side="left", padx=(8, 0))
+        if not hasattr(self, "new_height_var"):
+            self.new_height_var = tk.StringVar(value=str(DEFAULT_GRID_HEIGHT))
+        ttk.Entry(f2, textvariable=self.new_height_var, width=20).pack(side="left", padx=6)
+
+        bf = ttk.Frame(self.new_wizard)
+        bf.pack(fill="x", pady=10)
+        ttk.Button(bf, text="⬅ Zurück", command=self._new_display_step1).pack(side="left")
+        ttk.Button(bf, text="Weiter ➜", command=self._new_goto_step3).pack(side="right")
+
+    def _new_goto_step3(self):
+        """Schritt 3 → 4: Maße validieren, dann Positionen-Schritt anzeigen."""
+        grid_str = self.new_grid_var.get().strip()
+        rows, cols = parse_grid(grid_str)
 
         try:
             width = float(self.new_width_var.get())
@@ -414,10 +607,10 @@ class App(tk.Tk):
             return
 
         self._clear_wizard()
-        self.new_step = 2
+        self.new_step = 3
         tnr = self.new_typnr_var.get().strip()
 
-        ttk.Label(self.new_wizard, text=f"Schritt 3: Positionen für Typ {tnr} ({grid_str})",
+        ttk.Label(self.new_wizard, text=f"Schritt 4: Positionen für Typ {tnr} ({grid_str})",
                   font=("", 12, "bold")).pack(anchor="w", pady=(0, 8))
 
         # Scrollbar
@@ -482,7 +675,7 @@ class App(tk.Tk):
         # Buttons
         bf = ttk.Frame(self.new_wizard)
         bf.pack(fill="x", pady=6)
-        ttk.Button(bf, text="⬅ Zurück", command=self._new_goto_step1).pack(side="left")
+        ttk.Button(bf, text="⬅ Zurück", command=self._new_display_step2).pack(side="left")
         ttk.Button(bf, text="💾  Neuen Typ speichern", command=lambda: self._save_new(rows, cols, grid_str)).pack(
             side="right")
 
@@ -818,6 +1011,18 @@ class App(tk.Tk):
                 ttk.Entry(rf, textvariable=max_var, width=10).pack(side="left", padx=2)
                 self.limit_entries[category][axis] = (min_var, max_var)
 
+        # Einzelbild-Größe für Grid-Vorschau
+        tile_lf = ttk.LabelFrame(self.tab_limits, text="Einzelbild-Größe (für Grid-Vorschau)")
+        tile_lf.pack(fill="x", padx=8, pady=6)
+        rf_tile = ttk.Frame(tile_lf)
+        rf_tile.pack(fill="x", padx=4, pady=4)
+        ttk.Label(rf_tile, text="Einzelbild-Breite (px):").pack(side="left")
+        self.tile_width_var = tk.StringVar(value=str(self.limits.get("TileWidth", DEFAULT_TILE_WIDTH)))
+        ttk.Entry(rf_tile, textvariable=self.tile_width_var, width=10).pack(side="left", padx=6)
+        ttk.Label(rf_tile, text="Einzelbild-Höhe (px):").pack(side="left", padx=(16, 0))
+        self.tile_height_var = tk.StringVar(value=str(self.limits.get("TileHeight", DEFAULT_TILE_HEIGHT)))
+        ttk.Entry(rf_tile, textvariable=self.tile_height_var, width=10).pack(side="left", padx=6)
+
         ttk.Button(self.tab_limits, text="💾  Limits speichern", command=self._save_limits).pack(anchor="e", padx=8,
                                                                                                   pady=10)
 
@@ -836,6 +1041,16 @@ class App(tk.Tk):
                 except ValueError:
                     messagebox.showerror("Fehler", f"{category} {axis}: ungültige Zahlenwerte")
                     return
+        try:
+            tw = int(float(self.tile_width_var.get()))
+            th = int(float(self.tile_height_var.get()))
+            if tw <= 0 or th <= 0:
+                raise ValueError
+            new_limits["TileWidth"] = tw
+            new_limits["TileHeight"] = th
+        except ValueError:
+            messagebox.showerror("Fehler", "Einzelbild-Breite/-Höhe: ungültige Zahlenwerte (müssen > 0 sein)")
+            return
         self.limits = new_limits
         save_limits(new_limits)
         messagebox.showinfo("Gespeichert", "Limits erfolgreich gespeichert.")
