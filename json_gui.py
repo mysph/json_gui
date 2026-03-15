@@ -39,7 +39,13 @@ def load_json():
         return json.load(f)
 
 def _format_json(data):
-    """Formatiert die JSON-Daten so, dass jeder Positions-Eintrag auf einer Zeile steht."""
+    """Formatiert die JSON-Daten so, dass jeder Positions-Eintrag auf einer Zeile steht.
+
+    Erzeugt Tab-basierte Einrückung auf drei Ebenen (Typ, Felder, Positions-Einträge).
+    Jeder Eintrag im Positions-Array wird als kompakte Zeile mit Leerzeichen
+    innerhalb der geschweiften Klammern ausgegeben, z.B.:
+        { "PathPosAction": "CaptureImage", "Position": { "X": 1.0, "Y": 2.0, "Z": 3.0 }, ... }
+    """
     lines = []
     lines.append("{")
     type_keys = list(data.keys())
