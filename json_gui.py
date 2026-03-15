@@ -285,10 +285,21 @@ class App(tk.Tk):
         except Exception:
             rows, cols = 1, 1
 
-        cell_w = max(1, img_w // cols)
-        cell_h = max(1, img_h // rows)
-        t_w = max(1, int(cell_w * scale))
-        t_h = max(1, int(cell_h * scale))
+        # Grid-Spacing: gleichmäßiger Abstand zwischen Kachel-Starts (in Original-Pixeln)
+        step_x = img_w / cols
+        step_y = img_h / rows
+
+        # Tile-Größe aus Limits (mit Fallback) in Original-Pixeln
+        tile_w = self.limits.get("TileWidth", DEFAULT_TILE_WIDTH)
+        tile_h = self.limits.get("TileHeight", DEFAULT_TILE_HEIGHT)
+
+        # Display-Tile-Größe für Einzelbilder (skaliert, inkl. Überlapp-Faktor)
+        tile_w_px = max(1, int(tile_w * scale))
+        tile_h_px = max(1, int(tile_h * scale))
+
+        # Display-Tile-Größe für Mosaik: entspricht dem Grid-Spacing (damit Mosaik kompakt bleibt)
+        t_w = max(1, int(step_x * scale))
+        t_h = max(1, int(step_y * scale))
 
         # Bild 1: Skaliertes Originalbild
         lf1 = ttk.LabelFrame(parent, text="Originalbild")
@@ -299,16 +310,19 @@ class App(tk.Tk):
         lbl1.pack()
         photo_list.append(ph1)
 
-        # Bild 2: Einzelbilder nebeneinander im Grid-Layout
+        # Bild 2: Einzelbilder nebeneinander im Grid-Layout (mit Überlapp falls tile_w > step_x)
         lf2 = ttk.LabelFrame(parent, text=f"Einzelbilder ({grid_str})")
         lf2.pack(side="left", padx=4, anchor="n")
         for r in range(rows):
             row_f = ttk.Frame(lf2)
             row_f.pack(anchor="w")
             for c in range(cols):
-                x0, y0 = c * cell_w, r * cell_h
-                tile = img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
-                tile_s = tile.resize((t_w, t_h), Image.LANCZOS)
+                x0 = int(c * step_x)
+                y0 = int(r * step_y)
+                x1 = min(x0 + tile_w, img_w)
+                y1 = min(y0 + tile_h, img_h)
+                tile = img.crop((x0, y0, x1, y1))
+                tile_s = tile.resize((tile_w_px, tile_h_px), Image.LANCZOS)
                 ph = ImageTk.PhotoImage(tile_s)
                 lbl = ttk.Label(row_f, image=ph)
                 lbl.image = ph
@@ -322,8 +336,11 @@ class App(tk.Tk):
         mosaic = Image.new("RGB", (mosaic_w, mosaic_h), (200, 200, 200))
         for r in range(rows):
             for c in range(cols):
-                x0, y0 = c * cell_w, r * cell_h
-                tile = img.crop((x0, y0, x0 + cell_w, y0 + cell_h))
+                x0 = int(c * step_x)
+                y0 = int(r * step_y)
+                x1 = min(x0 + tile_w, img_w)
+                y1 = min(y0 + tile_h, img_h)
+                tile = img.crop((x0, y0, x1, y1))
                 tile_s = tile.resize((t_w, t_h), Image.LANCZOS)
                 mosaic.paste(tile_s, (c * (t_w + GAP), r * (t_h + GAP)))
         lf3 = ttk.LabelFrame(parent, text=f"Grid mit Abstand ({grid_str})")
